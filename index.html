@@ -461,11 +461,6 @@
     <div class="tabstrip" id="tabstrip"></div>
   </header>
 
-  <div id="feedbackBar" class="feedback-bar">
-    <button type="button" class="feedback-toggle" id="feedbackToggle">💡 Have an idea or found something broken? Share feedback</button>
-    <div class="feedback-panel" id="feedbackPanel" style="display:none;"></div>
-  </div>
-
   <main id="main"></main>
 </div>
 
@@ -593,7 +588,7 @@
   "use strict";
 
   var PASSWORD = "MyContwols";
-  var VIEWER_PASSWORD = "BreezeGuestView";
+  var GUEST_EMAILS = ["garrett.urry@flybreeze.com"];
   var STORAGE_KEY = "breezeDispatchProjectBoard_v2";
   var CONFIG_KEY = "breezeDispatchSyncConfig_v1";
   var SESSION_KEY = "breezeDispatchBoard_session";
@@ -874,10 +869,8 @@
     var email = document.getElementById("emailInput").value.trim();
     var pass = document.getElementById("passInput").value;
     var err = document.getElementById("loginError");
-    var role;
-    if(pass === PASSWORD) role = "admin";
-    else if(pass === VIEWER_PASSWORD) role = "viewer";
-    else { err.textContent = "Incorrect password."; return; }
+    if(pass !== PASSWORD){ err.textContent = "Incorrect password."; return; }
+    var role = GUEST_EMAILS.indexOf(email.toLowerCase()) !== -1 ? "viewer" : "admin";
     err.textContent = "";
     currentRole = role;
     sessionStorage.setItem(SESSION_KEY, email);
@@ -1323,9 +1316,14 @@
   // ---------- FEEDBACK ----------
   var pendingFeedbackFile = null;
 
-  function renderFeedbackPanel(){
-    var panel = document.getElementById("feedbackPanel");
-    panel.innerHTML = "";
+  function renderFeedbackTab(main){
+    var panel = document.createElement("div");
+    panel.className = "tab-panel active";
+
+    var head = document.createElement("div");
+    head.className = "panel-head";
+    head.innerHTML = '<div><h2>💡 Feedback</h2><div class="desc">Share an idea, or let us know if something\'s broken.</div></div>';
+    panel.appendChild(head);
 
     var form = document.createElement("div");
     form.className = "feedback-form";
@@ -1391,15 +1389,16 @@
         });
       }
       save();
-      textArea.value = "";
-      pendingFeedbackFile = null;
       updateAlertBadge(); updateStatusBadge();
-      renderFeedbackPanel();
+      pendingFeedbackFile = null;
+      renderTabs();
+      renderMain();
     });
     form.appendChild(submitBtn);
 
     panel.appendChild(form);
 
+    var list = document.createElement("div");
     (data.feedback || []).slice().sort(function(a,b){ return b.timestamp.localeCompare(a.timestamp); }).forEach(function(f){
       var item = document.createElement("div");
       item.className = "feedback-item";
@@ -1410,6 +1409,21 @@
       badge.textContent = f.type === "bug" ? "🐛 Bug" : "💡 Idea";
       meta.appendChild(badge);
       meta.appendChild(document.createTextNode(f.author + " · " + formatTimestamp(f.timestamp)));
+      if(currentRole === "admin"){
+        var delBtn = document.createElement("button");
+        delBtn.className = "icon-btn danger";
+        delBtn.style.float = "right";
+        delBtn.textContent = "🗑";
+        delBtn.title = "Delete";
+        delBtn.addEventListener("click", function(){
+          if(!confirm("Delete this feedback entry?")) return;
+          data.feedback = data.feedback.filter(function(x){ return x.id !== f.id; });
+          save();
+          renderTabs();
+          renderMain();
+        });
+        meta.appendChild(delBtn);
+      }
       item.appendChild(meta);
       var textDiv = document.createElement("div");
       textDiv.textContent = f.text;
@@ -1420,19 +1434,20 @@
         viewBtn.className = "node-link-btn";
         viewBtn.style.marginTop = "6px";
         viewBtn.textContent = "🖼 View screenshot";
-        viewBtn.addEventListener("click", function(){ openRepoFile(f.attachment.repoPath, f.attachment.label, true); });
+        viewBtn.addEventListener("click", function(){ openRepoFile(f.attachment.repoPath, f.attachment.label, true, f.attachment.mimeType); });
         item.appendChild(viewBtn);
       }
-      panel.appendChild(item);
+      list.appendChild(item);
     });
+    if((data.feedback || []).length === 0){
+      var empty = document.createElement("div");
+      empty.className = "empty-state";
+      empty.textContent = "No feedback yet.";
+      list.appendChild(empty);
+    }
+    panel.appendChild(list);
+    main.appendChild(panel);
   }
-
-  document.getElementById("feedbackToggle").addEventListener("click", function(){
-    var panel = document.getElementById("feedbackPanel");
-    var open = panel.style.display !== "none";
-    panel.style.display = open ? "none" : "block";
-    if(!open) renderFeedbackPanel();
-  });
 
   document.getElementById("logoutBtn").addEventListener("click", function(){
     sessionStorage.removeItem(SESSION_KEY);
@@ -1487,6 +1502,17 @@
   function renderTabs(){
     var strip = document.getElementById("tabstrip");
     strip.innerHTML = "";
+
+    var fbBtn = document.createElement("button");
+    fbBtn.className = "tab-btn" + (activeTab === "feedback" ? " active" : "");
+    fbBtn.innerHTML = '<span class="count">' + (data.feedback ? data.feedback.length : 0) + '</span><span>💡 Feedback</span>';
+    fbBtn.addEventListener("click", function(){
+      activeTab = "feedback";
+      renderTabs();
+      renderMain();
+    });
+    strip.appendChild(fbBtn);
+
     TABS.forEach(function(t){
       var btn = document.createElement("button");
       btn.className = "tab-btn" + (t.id === activeTab ? " active" : "");
@@ -1522,6 +1548,12 @@
   function renderMain(){
     var main = document.getElementById("main");
     main.innerHTML = "";
+
+    if(activeTab === "feedback"){
+      renderFeedbackTab(main);
+      return;
+    }
+
     var tabDef = TABS.filter(function(t){return t.id===activeTab;})[0];
 
     var panel = document.createElement("div");
@@ -1785,7 +1817,7 @@
             fbtn.type = "button";
             fbtn.className = "node-link-btn";
             fbtn.textContent = "📎 " + (link.label || "file");
-            fbtn.addEventListener("click", function(){ openRepoFile(link.repoPath, link.label); });
+            fbtn.addEventListener("click", function(){ openRepoFile(link.repoPath, link.label, false, link.mimeType); });
             linksRow.appendChild(fbtn);
           } else {
             var a = document.createElement("a");
@@ -1983,6 +2015,18 @@
   var mFileDrop = document.getElementById("m_fileDrop");
   var mFileInput = document.getElementById("m_fileInput");
 
+  function guessMimeType(filename){
+    var ext = (filename || "").split(".").pop().toLowerCase();
+    var map = {
+      png:"image/png", jpg:"image/jpeg", jpeg:"image/jpeg", gif:"image/gif", webp:"image/webp",
+      pdf:"application/pdf", doc:"application/msword",
+      docx:"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      xlsx:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      xls:"application/vnd.ms-excel", txt:"text/plain", csv:"text/csv"
+    };
+    return map[ext] || "application/octet-stream";
+  }
+
   function uploadFileToRepo(file){
     return new Promise(function(resolve, reject){
       if(!syncConfig){ reject(new Error("Shared sync isn't set up yet")); return; }
@@ -1999,7 +2043,7 @@
           if(!res.ok) throw new Error("HTTP " + res.status);
           return res.json();
         }).then(function(){
-          resolve({label: file.name, repoPath: path});
+          resolve({label: file.name, repoPath: path, mimeType: file.type || guessMimeType(file.name)});
         }).catch(reject);
       };
       reader.onerror = reject;
@@ -2007,7 +2051,7 @@
     });
   }
 
-  function openRepoFile(repoPath, filename, inlineView){
+  function openRepoFile(repoPath, filename, inlineView, mimeType){
     if(!syncConfig){ alert("Connect shared sync (⚙) first to open shared files."); return; }
     fetch("https://api.github.com/repos/" + syncConfig.owner + "/" + syncConfig.repo + "/contents/" + encodeURIComponent(repoPath).replace(/%2F/g, "/"), {
       headers: ghHeaders()
@@ -2018,9 +2062,10 @@
       var byteChars = atob(json.content.replace(/\n/g, ""));
       var byteNumbers = new Array(byteChars.length);
       for(var i=0;i<byteChars.length;i++) byteNumbers[i] = byteChars.charCodeAt(i);
-      var blob = new Blob([new Uint8Array(byteNumbers)]);
+      var blob = new Blob([new Uint8Array(byteNumbers)], {type: mimeType || guessMimeType(filename)});
       var blobUrl = URL.createObjectURL(blob);
-      if(inlineView){
+      var effectiveMime = mimeType || guessMimeType(filename);
+      if(inlineView || effectiveMime.indexOf("image/") === 0){
         window.open(blobUrl, "_blank");
       } else {
         var a = document.createElement("a");
