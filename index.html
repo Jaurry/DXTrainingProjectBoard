@@ -6,6 +6,7 @@
 <title>Dispatch Training — Project Board</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <style>
   :root{
     --bg:#eaf3f8;
@@ -341,6 +342,46 @@
     color:var(--ink-soft);font-size:12.5px;cursor:pointer;margin-bottom:8px;
   }
   .file-drop.drag-over{border-color:var(--primary);background:var(--border-soft);color:var(--primary-dark);}
+  .feedback-bar{
+    background:#fff8ec;border-bottom:1px solid #f0dfb8;
+  }
+  .feedback-toggle{
+    width:100%;text-align:left;background:none;border:none;padding:9px 32px;
+    font-size:13px;font-weight:600;color:#8a6a1f;cursor:pointer;font-family:'Inter',sans-serif;
+  }
+  .feedback-toggle:hover{background:#fef3dc;}
+  .feedback-panel{
+    padding:14px 32px 20px;max-width:1180px;margin:0 auto;
+  }
+  .feedback-form{
+    background:#fff;border:1px solid var(--border-soft);border-radius:var(--radius-sm);
+    padding:14px;margin-bottom:14px;box-shadow:var(--shadow-soft);
+  }
+  .feedback-form select, .feedback-form textarea{
+    width:100%;padding:9px 11px;border-radius:9px;border:1.5px solid var(--border);
+    font-size:13.5px;font-family:'Inter',sans-serif;background:#fbfdfe;color:var(--ink);margin-bottom:8px;
+  }
+  .feedback-form textarea{min-height:56px;resize:vertical;}
+  .feedback-item{
+    background:#fff;border:1px solid var(--border-soft);border-radius:var(--radius-sm);
+    padding:10px 12px;margin-bottom:8px;font-size:13.5px;box-shadow:var(--shadow-soft);
+  }
+  .feedback-item .feedback-meta{color:var(--ink-soft);font-size:11.5px;margin-bottom:4px;}
+  .feedback-badge{
+    display:inline-block;font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:99px;margin-right:6px;
+  }
+  .feedback-badge.idea{background:#e3f1fa;color:var(--primary-dark);}
+  .feedback-badge.bug{background:var(--rush-soft);color:var(--rush);}
+  .status-section-title{font-size:13px;font-weight:700;color:var(--primary-deep);margin:14px 0 6px;}
+  .status-item{
+    border:1px solid var(--border-soft);border-radius:9px;padding:10px 12px;margin-bottom:8px;font-size:13px;
+  }
+  .status-item .status-meta{color:var(--ink-soft);font-size:11.5px;margin-bottom:4px;}
+  .status-pill{
+    display:inline-block;font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:99px;
+  }
+  .status-pill.pending{background:#fef3e0;color:#a15c00;}
+  .status-pill.completed{background:var(--done-soft);color:var(--done);}
   .chip{
     background:#e3f1fa;color:var(--primary-dark);font-size:12px;font-weight:600;
     padding:4px 6px 4px 10px;border-radius:99px;display:flex;align-items:center;gap:6px;
@@ -406,6 +447,9 @@
         <button class="icon-ghost-btn" id="alertsBtn" title="Alerts" style="position:relative;">
           🔔<span class="alert-badge" id="alertBadge" style="display:none;">0</span>
         </button>
+        <button class="ghost-btn" id="statusBtn" title="Status updates" style="position:relative;">
+          📋 Updates<span class="alert-badge" id="statusBadge" style="display:none;">0</span>
+        </button>
         <button class="ghost-btn" id="refreshBtn">↻ Refresh</button>
         <button class="icon-ghost-btn" id="settingsBtn" title="Shared sync settings">⚙</button>
         <button class="ghost-btn" id="exportBtn">Export</button>
@@ -417,7 +461,23 @@
     <div class="tabstrip" id="tabstrip"></div>
   </header>
 
+  <div id="feedbackBar" class="feedback-bar">
+    <button type="button" class="feedback-toggle" id="feedbackToggle">💡 Have an idea or found something broken? Share feedback</button>
+    <div class="feedback-panel" id="feedbackPanel" style="display:none;"></div>
+  </div>
+
   <main id="main"></main>
+</div>
+
+<!-- STATUS UPDATES -->
+<div class="modal-overlay" id="statusOverlay">
+  <div class="modal" style="max-width:560px;">
+    <h3>Status Updates</h3>
+    <div id="statusPanelBody"></div>
+    <div class="modal-actions">
+      <button class="btn-cancel" id="statusCancel">Close</button>
+    </div>
+  </div>
 </div>
 
 <!-- ALERTS DROPDOWN -->
@@ -435,10 +495,14 @@
 <div class="modal-overlay" id="whoAmIOverlay">
   <div class="modal" style="max-width:340px;">
     <h3>Who's using this device?</h3>
-    <p class="hint">This is just so tags and alerts know who you are — it's saved on this device only, separate from the shared login.</p>
+    <p class="hint">This is just so tags, alerts, and status requests know who you are — it's saved on this device only, separate from the shared login.</p>
     <div class="assignee-checks" style="gap:10px;">
       <button type="button" class="add-top-btn" id="whoAmIBrian" style="flex:1;">Brian</button>
       <button type="button" class="add-top-btn" id="whoAmIDrew" style="flex:1;">Drew</button>
+    </div>
+    <div class="chip-row" style="margin-top:10px;">
+      <input type="text" id="whoAmICustom" placeholder="Or type your name…">
+      <button type="button" class="chip-add-btn" id="whoAmICustomBtn">Use this</button>
     </div>
   </div>
 </div>
@@ -529,10 +593,13 @@
   "use strict";
 
   var PASSWORD = "MyContwols";
+  var VIEWER_PASSWORD = "BreezeGuestView";
   var STORAGE_KEY = "breezeDispatchProjectBoard_v2";
   var CONFIG_KEY = "breezeDispatchSyncConfig_v1";
   var SESSION_KEY = "breezeDispatchBoard_session";
+  var ROLE_KEY = "breezeDispatchBoard_role";
   var POLL_MS = 25000;
+  var currentRole = "admin";
 
   var TABS = [
     {id:"inprogress", label:"In Progress", desc:"Actively being built or delivered right now."},
@@ -568,7 +635,9 @@
       rush: [],
       backburner: [],
       completed: [],
-      notifications: []
+      notifications: [],
+      feedback: [],
+      statusRequests: []
     };
   }
 
@@ -590,6 +659,8 @@
   function migrate(obj){
     TABS.forEach(function(t){ if(!obj[t.id]) obj[t.id] = []; });
     if(!Array.isArray(obj.notifications)) obj.notifications = [];
+    if(!Array.isArray(obj.feedback)) obj.feedback = [];
+    if(!Array.isArray(obj.statusRequests)) obj.statusRequests = [];
     function fix(arr){
       arr.forEach(function(item){
         if(typeof item.assignee === "string"){
@@ -744,12 +815,12 @@
   function startPolling(){
     if(pollTimer) clearInterval(pollTimer);
     pollTimer = setInterval(function(){
-      if(syncConfig) cloudPull(false).then(function(changed){ if(changed){ renderTabs(); renderMain(); updateAlertBadge(); } });
+      if(syncConfig) cloudPull(false).then(function(changed){ if(changed){ renderTabs(); renderMain(); updateAlertBadge(); updateStatusBadge(); } });
     }, POLL_MS);
   }
 
   document.getElementById("refreshBtn").addEventListener("click", function(){
-    cloudPull(true).then(function(){ renderTabs(); renderMain(); updateAlertBadge(); });
+    cloudPull(true).then(function(){ renderTabs(); renderMain(); updateAlertBadge(); updateStatusBadge(); });
   });
 
   // Settings modal
@@ -792,7 +863,10 @@
   // ---------- LOGIN ----------
   function checkSession(){
     var email = sessionStorage.getItem(SESSION_KEY);
-    if(email) showApp(email);
+    if(email){
+      currentRole = sessionStorage.getItem(ROLE_KEY) || "admin";
+      showApp(email);
+    }
   }
 
   document.getElementById("loginForm").addEventListener("submit", function(e){
@@ -800,12 +874,14 @@
     var email = document.getElementById("emailInput").value.trim();
     var pass = document.getElementById("passInput").value;
     var err = document.getElementById("loginError");
-    if(pass !== PASSWORD){
-      err.textContent = "Incorrect password.";
-      return;
-    }
+    var role;
+    if(pass === PASSWORD) role = "admin";
+    else if(pass === VIEWER_PASSWORD) role = "viewer";
+    else { err.textContent = "Incorrect password."; return; }
     err.textContent = "";
+    currentRole = role;
     sessionStorage.setItem(SESSION_KEY, email);
+    sessionStorage.setItem(ROLE_KEY, role);
     showApp(email);
   });
 
@@ -813,18 +889,19 @@
     document.getElementById("loginScreen").style.display = "none";
     document.getElementById("app").style.display = "block";
     document.getElementById("whoami") && (document.getElementById("whoami").textContent = email);
+    document.getElementById("importBtn").style.display = (currentRole === "admin") ? "" : "none";
     loadSyncConfig();
     loadWhoAmI();
     loadLocal();
     renderTabs();
     renderMain();
-    updateAlertBadge();
+    updateAlertBadge(); updateStatusBadge();
     if(syncConfig){
       cloudPull(true).then(function(pulled){
         if(!pulled) cloudPush();
         renderTabs();
         renderMain();
-        updateAlertBadge();
+        updateAlertBadge(); updateStatusBadge();
         startPolling();
       });
     } else {
@@ -857,6 +934,13 @@
   });
   document.getElementById("whoAmIDrew").addEventListener("click", function(){
     saveWhoAmI("Drew");
+    document.getElementById("whoAmIOverlay").classList.remove("show");
+  });
+  document.getElementById("whoAmICustomBtn").addEventListener("click", function(){
+    var name = document.getElementById("whoAmICustom").value.trim();
+    if(!name) return;
+    saveWhoAmI(name);
+    document.getElementById("whoAmICustom").value = "";
     document.getElementById("whoAmIOverlay").classList.remove("show");
   });
   document.getElementById("whoAmIOverlay").addEventListener("click", function(e){
@@ -901,7 +985,7 @@
         n.read = true;
         save();
         renderAlerts();
-        updateAlertBadge();
+        updateAlertBadge(); updateStatusBadge();
       });
       div.appendChild(dismiss);
       var meta = document.createElement("div");
@@ -921,6 +1005,310 @@
     return d.toLocaleDateString(undefined, {month:"short", day:"numeric"}) + " at " + d.toLocaleTimeString(undefined, {hour:"numeric", minute:"2-digit"});
   }
 
+  // ---------- STATUS UPDATES ----------
+  function getAllTopLevelProjects(){
+    var list = [];
+    TABS.forEach(function(t){
+      data[t.id].forEach(function(item){
+        list.push({tab: t.id, tabLabel: t.label, id: item.id, title: item.title});
+      });
+    });
+    return list;
+  }
+
+  function buildProjectSummaryLines(item, depth){
+    depth = depth || 0;
+    var indent = "  ".repeat(depth);
+    var lines = [];
+    lines.push(indent + (depth > 0 ? "- " : "") + item.title + (item.completed ? " [COMPLETED]" : ""));
+    if(item.assignees && item.assignees.length) lines.push(indent + "    Assigned: " + item.assignees.join(", "));
+    if(item.deadline) lines.push(indent + "    Deadline: " + formatDate(item.deadline));
+    if(item.notes && item.notes.trim()) lines.push(indent + "    Notes: " + item.notes.trim());
+    (item.comments || []).slice().sort(function(a,b){ return a.timestamp.localeCompare(b.timestamp); }).forEach(function(c){
+      lines.push(indent + "    [" + formatTimestamp(c.timestamp) + " - " + c.author + "]: " + c.text);
+    });
+    (item.children || []).forEach(function(child){
+      lines = lines.concat(buildProjectSummaryLines(child, depth + 1));
+    });
+    return lines;
+  }
+
+  function updateStatusBadge(){
+    var badge = document.getElementById("statusBadge");
+    if(!data || !whoAmI){ badge.style.display = "none"; return; }
+    var pending = (data.statusRequests || []).filter(function(r){ return r.requestedFrom === whoAmI && r.status === "pending"; }).length;
+    if(pending > 0){ badge.style.display = "flex"; badge.textContent = pending > 9 ? "9+" : String(pending); }
+    else badge.style.display = "none";
+  }
+
+  var statusView = "list"; // 'list' | 'new' | 'respond'
+  var statusRespondingId = null;
+
+  function renderStatusPanel(){
+    var body = document.getElementById("statusPanelBody");
+    body.innerHTML = "";
+
+    if(statusView === "new"){ renderStatusNewForm(body); return; }
+    if(statusView === "respond"){ renderStatusRespondForm(body); return; }
+
+    var newBtn = document.createElement("button");
+    newBtn.className = "add-top-btn";
+    newBtn.textContent = "+ Request a status update";
+    newBtn.addEventListener("click", function(){ statusView = "new"; renderStatusPanel(); });
+    body.appendChild(newBtn);
+
+    var forYou = (data.statusRequests || []).filter(function(r){ return r.requestedFrom === whoAmI; });
+    var fromYou = (data.statusRequests || []).filter(function(r){ return r.requestedBy === whoAmI; });
+
+    var t1 = document.createElement("div");
+    t1.className = "status-section-title";
+    t1.textContent = "Requests for you";
+    body.appendChild(t1);
+    if(forYou.length === 0){
+      var e1 = document.createElement("div");
+      e1.className = "alert-empty";
+      e1.textContent = "Nothing pending.";
+      body.appendChild(e1);
+    }
+    forYou.slice().sort(function(a,b){ return b.createdAt.localeCompare(a.createdAt); }).forEach(function(r){
+      body.appendChild(buildStatusItem(r, true));
+    });
+
+    var t2 = document.createElement("div");
+    t2.className = "status-section-title";
+    t2.textContent = "Requests you've sent";
+    body.appendChild(t2);
+    if(fromYou.length === 0){
+      var e2 = document.createElement("div");
+      e2.className = "alert-empty";
+      e2.textContent = "You haven't requested any updates yet.";
+      body.appendChild(e2);
+    }
+    fromYou.slice().sort(function(a,b){ return b.createdAt.localeCompare(a.createdAt); }).forEach(function(r){
+      body.appendChild(buildStatusItem(r, false));
+    });
+  }
+
+  function buildStatusItem(r, showRespond){
+    var div = document.createElement("div");
+    div.className = "status-item";
+    var meta = document.createElement("div");
+    meta.className = "status-meta";
+    var pill = document.createElement("span");
+    pill.className = "status-pill " + r.status;
+    pill.textContent = r.status === "pending" ? "Pending" : "Completed";
+    meta.appendChild(pill);
+    meta.appendChild(document.createTextNode(" " + r.itemTitle + " (" + r.tabLabel + ") — requested by " + r.requestedBy + " from " + r.requestedFrom));
+    div.appendChild(meta);
+    if(r.message){
+      var msg = document.createElement("div");
+      msg.textContent = "\"" + r.message + "\"";
+      div.appendChild(msg);
+    }
+    if(showRespond && r.status === "pending"){
+      var respondBtn = document.createElement("button");
+      respondBtn.className = "add-top-btn";
+      respondBtn.style.marginTop = "8px";
+      respondBtn.textContent = "Respond";
+      respondBtn.addEventListener("click", function(){
+        statusRespondingId = r.id;
+        statusView = "respond";
+        renderStatusPanel();
+      });
+      div.appendChild(respondBtn);
+    }
+    if(r.status === "completed" && r.response){
+      var dlBtn = document.createElement("button");
+      dlBtn.className = "add-top-btn";
+      dlBtn.style.marginTop = "8px";
+      dlBtn.textContent = "Download PDF again";
+      dlBtn.addEventListener("click", function(){
+        var project = findNodeById(r.itemTab, r.itemId);
+        generateStatusPDF(r, project ? project.title : r.itemTitle, r.response.summary, r.response.statement);
+      });
+      div.appendChild(dlBtn);
+    }
+    return div;
+  }
+
+  function renderStatusNewForm(body){
+    var backBtn = document.createElement("button");
+    backBtn.className = "btn-cancel";
+    backBtn.textContent = "← Back";
+    backBtn.addEventListener("click", function(){ statusView = "list"; renderStatusPanel(); });
+    body.appendChild(backBtn);
+
+    var t = document.createElement("div");
+    t.className = "status-section-title";
+    t.textContent = "Request a status update";
+    body.appendChild(t);
+
+    var projSel = document.createElement("select");
+    projSel.style.cssText = "width:100%;padding:9px 11px;border-radius:9px;border:1.5px solid var(--border);margin-bottom:8px;";
+    getAllTopLevelProjects().forEach(function(p){
+      var o = document.createElement("option");
+      o.value = p.tab + "::" + p.id;
+      o.textContent = p.title + " (" + p.tabLabel + ")";
+      projSel.appendChild(o);
+    });
+    body.appendChild(projSel);
+
+    var fromSel = document.createElement("select");
+    fromSel.style.cssText = "width:100%;padding:9px 11px;border-radius:9px;border:1.5px solid var(--border);margin-bottom:8px;";
+    fromSel.innerHTML = '<option value="Brian">Brian</option><option value="Drew">Drew</option><option value="__other">Someone else…</option>';
+    body.appendChild(fromSel);
+
+    var otherInput = document.createElement("input");
+    otherInput.type = "text";
+    otherInput.placeholder = "Type their name";
+    otherInput.style.cssText = "width:100%;padding:9px 11px;border-radius:9px;border:1.5px solid var(--border);margin-bottom:8px;display:none;";
+    fromSel.addEventListener("change", function(){
+      otherInput.style.display = fromSel.value === "__other" ? "block" : "none";
+    });
+    body.appendChild(otherInput);
+
+    var msgInput = document.createElement("textarea");
+    msgInput.placeholder = "Optional note (e.g. what you'd like covered)";
+    msgInput.style.cssText = "width:100%;padding:9px 11px;border-radius:9px;border:1.5px solid var(--border);min-height:56px;margin-bottom:8px;font-family:'Inter',sans-serif;";
+    body.appendChild(msgInput);
+
+    var sendBtn = document.createElement("button");
+    sendBtn.className = "add-top-btn";
+    sendBtn.textContent = "Send request";
+    sendBtn.addEventListener("click", function(){
+      var parts = projSel.value.split("::");
+      var tab = parts[0], id = parts[1];
+      var project = findNodeById(tab, id);
+      if(!project){ alert("That project isn't there anymore."); return; }
+      var requestedFrom = fromSel.value === "__other" ? otherInput.value.trim() : fromSel.value;
+      if(!requestedFrom){ alert("Enter who you're requesting from."); return; }
+      var req = {
+        id: uid(), itemTab: tab, itemId: id, itemTitle: project.title,
+        requestedBy: whoAmI || "Someone", requestedFrom: requestedFrom,
+        message: msgInput.value.trim(), status: "pending",
+        createdAt: new Date().toISOString(), response: null
+      };
+      data.statusRequests.push(req);
+      data.notifications.push({
+        id: uid(), itemId: id, tabLabel: (TABS.filter(function(t){return t.id===tab;})[0]||{}).label || tab,
+        itemTitle: project.title, author: req.requestedBy, mentioned: requestedFrom,
+        text: "Requested a status update" + (req.message ? (": \"" + req.message + "\"") : ""),
+        timestamp: req.createdAt, read: false
+      });
+      save();
+      updateAlertBadge(); updateStatusBadge();
+      updateStatusBadge();
+      statusView = "list";
+      renderStatusPanel();
+    });
+    body.appendChild(sendBtn);
+  }
+
+  function renderStatusRespondForm(body){
+    var req = (data.statusRequests || []).filter(function(r){ return r.id === statusRespondingId; })[0];
+    if(!req){
+      statusView = "list";
+      renderStatusPanel();
+      return;
+    }
+    var project = findNodeById(req.itemTab, req.itemId);
+
+    var backBtn = document.createElement("button");
+    backBtn.className = "btn-cancel";
+    backBtn.textContent = "← Back";
+    backBtn.addEventListener("click", function(){ statusView = "list"; renderStatusPanel(); });
+    body.appendChild(backBtn);
+
+    var t = document.createElement("div");
+    t.className = "status-section-title";
+    t.textContent = "Respond: " + req.itemTitle;
+    body.appendChild(t);
+
+    if(!project){
+      var gone = document.createElement("div");
+      gone.className = "alert-empty";
+      gone.textContent = "This project can't be found anymore — it may have been deleted.";
+      body.appendChild(gone);
+      return;
+    }
+
+    var stLabel = document.createElement("label");
+    stLabel.style.cssText = "display:block;font-size:12.5px;font-weight:600;color:var(--ink-soft);margin:8px 0 4px;";
+    stLabel.textContent = "Your statement";
+    body.appendChild(stLabel);
+    var statement = document.createElement("textarea");
+    statement.style.cssText = "width:100%;padding:9px 11px;border-radius:9px;border:1.5px solid var(--border);min-height:80px;font-family:'Inter',sans-serif;margin-bottom:10px;";
+    statement.placeholder = "Give your update in your own words...";
+    body.appendChild(statement);
+
+    var sumLabel = document.createElement("label");
+    sumLabel.style.cssText = "display:block;font-size:12.5px;font-weight:600;color:var(--ink-soft);margin:8px 0 4px;";
+    sumLabel.textContent = "Project summary (pulled from notes & sub-items — edit as needed)";
+    body.appendChild(sumLabel);
+    var summary = document.createElement("textarea");
+    summary.style.cssText = "width:100%;padding:9px 11px;border-radius:9px;border:1.5px solid var(--border);min-height:160px;font-family:'Inter',sans-serif;margin-bottom:10px;";
+    summary.value = buildProjectSummaryLines(project).join("\n");
+    body.appendChild(summary);
+
+    var genBtn = document.createElement("button");
+    genBtn.className = "add-top-btn";
+    genBtn.textContent = "Generate PDF & mark complete";
+    genBtn.addEventListener("click", function(){
+      var liveReq = (data.statusRequests || []).filter(function(r){ return r.id === req.id; })[0];
+      if(!liveReq){ alert("This request no longer exists."); return; }
+      liveReq.status = "completed";
+      liveReq.response = {
+        summary: summary.value, statement: statement.value,
+        respondedBy: whoAmI || "Someone", respondedAt: new Date().toISOString()
+      };
+      save();
+      updateStatusBadge();
+      generateStatusPDF(liveReq, project.title, summary.value, statement.value);
+      statusView = "list";
+      renderStatusPanel();
+    });
+    body.appendChild(genBtn);
+  }
+
+  function generateStatusPDF(req, projectTitle, summaryText, statementText){
+    if(!window.jspdf){ alert("The PDF library didn't load — check your internet connection and try again."); return; }
+    var doc = new window.jspdf.jsPDF();
+    var margin = 15, y = 20, pageWidth = 180, pageBottom = 280;
+    function addLine(text, size, bold){
+      doc.setFontSize(size || 10);
+      doc.setFont(undefined, bold ? "bold" : "normal");
+      var lines = doc.splitTextToSize(text, pageWidth);
+      lines.forEach(function(line){
+        if(y > pageBottom){ doc.addPage(); y = 20; }
+        doc.text(line, margin, y);
+        y += size ? size * 0.5 : 5;
+      });
+    }
+    addLine("Status Update: " + projectTitle, 16, true);
+    y += 2;
+    addLine("Requested by: " + req.requestedBy + "     Requested from: " + req.requestedFrom, 10);
+    addLine("Date: " + new Date().toLocaleDateString(), 10);
+    y += 4;
+    addLine("Statement", 12, true);
+    addLine(statementText || "(no statement provided)", 10);
+    y += 4;
+    addLine("Project Summary", 12, true);
+    addLine(summaryText || "(no summary)", 10);
+    doc.save("Status-Update-" + projectTitle.replace(/[^a-zA-Z0-9]+/g, "-") + ".pdf");
+  }
+
+  document.getElementById("statusBtn").addEventListener("click", function(){
+    statusView = "list";
+    renderStatusPanel();
+    document.getElementById("statusOverlay").classList.add("show");
+  });
+  document.getElementById("statusCancel").addEventListener("click", function(){
+    document.getElementById("statusOverlay").classList.remove("show");
+  });
+  document.getElementById("statusOverlay").addEventListener("click", function(e){
+    if(e.target === document.getElementById("statusOverlay")) document.getElementById("statusOverlay").classList.remove("show");
+  });
+
   document.getElementById("alertsBtn").addEventListener("click", function(){
     renderAlerts();
     document.getElementById("alertsOverlay").classList.add("show");
@@ -930,6 +1318,120 @@
   });
   document.getElementById("alertsOverlay").addEventListener("click", function(e){
     if(e.target === document.getElementById("alertsOverlay")) document.getElementById("alertsOverlay").classList.remove("show");
+  });
+
+  // ---------- FEEDBACK ----------
+  var pendingFeedbackFile = null;
+
+  function renderFeedbackPanel(){
+    var panel = document.getElementById("feedbackPanel");
+    panel.innerHTML = "";
+
+    var form = document.createElement("div");
+    form.className = "feedback-form";
+
+    var typeSel = document.createElement("select");
+    typeSel.innerHTML = '<option value="idea">💡 Idea / suggestion</option><option value="bug">🐛 Something is broken</option>';
+    form.appendChild(typeSel);
+
+    var textArea = document.createElement("textarea");
+    textArea.placeholder = "What's on your mind? For bugs, describe what you were doing when it happened.";
+    form.appendChild(textArea);
+
+    var fileDrop = document.createElement("div");
+    fileDrop.className = "file-drop";
+    fileDrop.textContent = "Drag a screenshot here, or click to attach (optional)";
+    var fileInput = document.createElement("input");
+    fileInput.type = "file";
+    fileInput.accept = "image/*";
+    fileInput.style.display = "none";
+    fileDrop.addEventListener("click", function(){ fileInput.click(); });
+    fileDrop.addEventListener("dragover", function(e){ e.preventDefault(); fileDrop.classList.add("drag-over"); });
+    fileDrop.addEventListener("dragleave", function(){ fileDrop.classList.remove("drag-over"); });
+    function handleFeedbackFile(file){
+      if(!syncConfig){ alert("Connect shared sync first (⚙) to attach screenshots."); return; }
+      fileDrop.textContent = "Uploading " + file.name + "...";
+      uploadFileToRepo(file).then(function(result){
+        pendingFeedbackFile = result;
+        fileDrop.textContent = "📎 " + result.label + " attached (click to replace)";
+        fileDrop.classList.remove("drag-over");
+      }).catch(function(){
+        alert("Couldn't upload that screenshot.");
+        fileDrop.textContent = "Drag a screenshot here, or click to attach (optional)";
+      });
+    }
+    fileDrop.addEventListener("drop", function(e){
+      e.preventDefault();
+      fileDrop.classList.remove("drag-over");
+      if(e.dataTransfer.files && e.dataTransfer.files.length) handleFeedbackFile(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener("change", function(e){
+      if(e.target.files && e.target.files.length) handleFeedbackFile(e.target.files[0]);
+      fileInput.value = "";
+    });
+    form.appendChild(fileDrop);
+    form.appendChild(fileInput);
+
+    var submitBtn = document.createElement("button");
+    submitBtn.className = "add-top-btn";
+    submitBtn.textContent = "Submit feedback";
+    submitBtn.addEventListener("click", function(){
+      var text = textArea.value.trim();
+      if(!text) return;
+      var entry = {
+        id: uid(), author: whoAmI || "Someone", type: typeSel.value, text: text,
+        attachment: pendingFeedbackFile, timestamp: new Date().toISOString()
+      };
+      data.feedback.push(entry);
+      if(typeSel.value === "bug" && entry.author !== "Drew"){
+        data.notifications.push({
+          id: uid(), itemId: null, tabLabel: "Feedback", itemTitle: "Bug report",
+          author: entry.author, mentioned: "Drew", text: text,
+          timestamp: entry.timestamp, read: false
+        });
+      }
+      save();
+      textArea.value = "";
+      pendingFeedbackFile = null;
+      updateAlertBadge(); updateStatusBadge();
+      renderFeedbackPanel();
+    });
+    form.appendChild(submitBtn);
+
+    panel.appendChild(form);
+
+    (data.feedback || []).slice().sort(function(a,b){ return b.timestamp.localeCompare(a.timestamp); }).forEach(function(f){
+      var item = document.createElement("div");
+      item.className = "feedback-item";
+      var meta = document.createElement("div");
+      meta.className = "feedback-meta";
+      var badge = document.createElement("span");
+      badge.className = "feedback-badge " + f.type;
+      badge.textContent = f.type === "bug" ? "🐛 Bug" : "💡 Idea";
+      meta.appendChild(badge);
+      meta.appendChild(document.createTextNode(f.author + " · " + formatTimestamp(f.timestamp)));
+      item.appendChild(meta);
+      var textDiv = document.createElement("div");
+      textDiv.textContent = f.text;
+      item.appendChild(textDiv);
+      if(f.attachment && f.attachment.repoPath){
+        var viewBtn = document.createElement("button");
+        viewBtn.type = "button";
+        viewBtn.className = "node-link-btn";
+        viewBtn.style.marginTop = "6px";
+        viewBtn.textContent = "🖼 View screenshot";
+        viewBtn.addEventListener("click", function(){ openRepoFile(f.attachment.repoPath, f.attachment.label, true); });
+        item.appendChild(viewBtn);
+      }
+      panel.appendChild(item);
+    });
+  }
+
+  document.getElementById("feedbackToggle").addEventListener("click", function(){
+    var panel = document.getElementById("feedbackPanel");
+    var open = panel.style.display !== "none";
+    panel.style.display = open ? "none" : "block";
+    if(!open) renderFeedbackPanel();
   });
 
   document.getElementById("logoutBtn").addEventListener("click", function(){
@@ -1043,7 +1545,7 @@
     addBtn.addEventListener("click", function(){
       openModal({mode:"add", tab: activeTab, parentId: null});
     });
-    actions.appendChild(addBtn);
+    if(currentRole === "admin") actions.appendChild(addBtn);
 
     head.appendChild(actions);
     panel.appendChild(head);
@@ -1085,7 +1587,7 @@
       if(hideCompleted && item.completed) return;
       var li = document.createElement("li");
       li.className = "node" + (item.completed ? " completed" : "");
-      li.draggable = true;
+      li.draggable = (currentRole === "admin");
       li.dataset.id = item.id;
 
       li.addEventListener("dragstart", function(e){
@@ -1123,11 +1625,13 @@
       badge.textContent = idx + 1;
       row.appendChild(badge);
 
-      var handle = document.createElement("span");
-      handle.className = "drag-handle";
-      handle.title = "Drag to reorder";
-      handle.textContent = "⠿";
-      row.appendChild(handle);
+      if(currentRole === "admin"){
+        var handle = document.createElement("span");
+        handle.className = "drag-handle";
+        handle.title = "Drag to reorder";
+        handle.textContent = "⠿";
+        row.appendChild(handle);
+      }
 
       var check = document.createElement("input");
       check.type = "checkbox";
@@ -1205,44 +1709,46 @@
       var controls = document.createElement("div");
       controls.className = "node-controls";
 
-      controls.appendChild(iconBtn("↑", "Move up", function(){
-        var i = arr.indexOf(item);
-        if(i > 0){ arr.splice(i,1); arr.splice(i-1,0,item); save(); window.__redraw(); }
-      }));
-      controls.appendChild(iconBtn("↓", "Move down", function(){
-        var i = arr.indexOf(item);
-        if(i < arr.length-1){ arr.splice(i,1); arr.splice(i+1,0,item); save(); window.__redraw(); }
-      }));
-
-      if(depth === 0){
-        var moveSel = document.createElement("select");
-        moveSel.className = "move-select";
-        var optDefault = document.createElement("option");
-        optDefault.textContent = "Move to…";
-        optDefault.value = "";
-        moveSel.appendChild(optDefault);
-        TABS.forEach(function(t){
-          if(t.id === activeTab) return;
-          var o = document.createElement("option");
-          o.value = t.id;
-          o.textContent = t.label;
-          moveSel.appendChild(o);
-        });
-        moveSel.addEventListener("change", function(){
-          if(!moveSel.value) return;
+      if(currentRole === "admin"){
+        controls.appendChild(iconBtn("↑", "Move up", function(){
           var i = arr.indexOf(item);
-          arr.splice(i,1);
-          data[moveSel.value].push(item);
-          save();
-          renderTabs();
-          renderMain();
-        });
-        controls.appendChild(moveSel);
-      }
+          if(i > 0){ arr.splice(i,1); arr.splice(i-1,0,item); save(); window.__redraw(); }
+        }));
+        controls.appendChild(iconBtn("↓", "Move down", function(){
+          var i = arr.indexOf(item);
+          if(i < arr.length-1){ arr.splice(i,1); arr.splice(i+1,0,item); save(); window.__redraw(); }
+        }));
 
-      controls.appendChild(iconBtn("✎", "Edit", function(){
-        openModal({mode:"edit", tab: activeTab, nodeId: item.id});
-      }));
+        if(depth === 0){
+          var moveSel = document.createElement("select");
+          moveSel.className = "move-select";
+          var optDefault = document.createElement("option");
+          optDefault.textContent = "Move to…";
+          optDefault.value = "";
+          moveSel.appendChild(optDefault);
+          TABS.forEach(function(t){
+            if(t.id === activeTab) return;
+            var o = document.createElement("option");
+            o.value = t.id;
+            o.textContent = t.label;
+            moveSel.appendChild(o);
+          });
+          moveSel.addEventListener("change", function(){
+            if(!moveSel.value) return;
+            var i = arr.indexOf(item);
+            arr.splice(i,1);
+            data[moveSel.value].push(item);
+            save();
+            renderTabs();
+            renderMain();
+          });
+          controls.appendChild(moveSel);
+        }
+
+        controls.appendChild(iconBtn("✎", "Edit", function(){
+          openModal({mode:"edit", tab: activeTab, nodeId: item.id});
+        }));
+      }
 
       var notesToggle = document.createElement("button");
       notesToggle.className = "notes-toggle";
@@ -1254,16 +1760,18 @@
       });
       controls.appendChild(notesToggle);
 
-      var delBtn = iconBtn("🗑", "Delete", function(){
-        if(confirm('Delete "' + item.title + '"' + (item.children.length ? " and its sub-items" : "") + "?")){
-          var i = arr.indexOf(item);
-          arr.splice(i,1);
-          save();
-          window.__redraw();
-        }
-      });
-      delBtn.classList.add("danger");
-      controls.appendChild(delBtn);
+      if(currentRole === "admin"){
+        var delBtn = iconBtn("🗑", "Delete", function(){
+          if(confirm('Delete "' + item.title + '"' + (item.children.length ? " and its sub-items" : "") + "?")){
+            var i = arr.indexOf(item);
+            arr.splice(i,1);
+            save();
+            window.__redraw();
+          }
+        });
+        delBtn.classList.add("danger");
+        controls.appendChild(delBtn);
+      }
 
       row.appendChild(controls);
       li.appendChild(row);
@@ -1376,16 +1884,18 @@
       if(item.children.length > 0){
         childWrap.appendChild(buildList(item.children, depth+1, hideCompleted));
       }
-      var addChildRow = document.createElement("div");
-      addChildRow.className = "add-child-row";
-      var addChildBtn = document.createElement("button");
-      addChildBtn.className = "add-child-btn";
-      addChildBtn.textContent = "+ Add sub-item";
-      addChildBtn.addEventListener("click", function(){
-        openModal({mode:"add", tab: activeTab, parentId: item.id});
-      });
-      addChildRow.appendChild(addChildBtn);
-      childWrap.appendChild(addChildRow);
+      if(currentRole === "admin"){
+        var addChildRow = document.createElement("div");
+        addChildRow.className = "add-child-row";
+        var addChildBtn = document.createElement("button");
+        addChildBtn.className = "add-child-btn";
+        addChildBtn.textContent = "+ Add sub-item";
+        addChildBtn.addEventListener("click", function(){
+          openModal({mode:"add", tab: activeTab, parentId: item.id});
+        });
+        addChildRow.appendChild(addChildBtn);
+        childWrap.appendChild(addChildRow);
+      }
 
       li.appendChild(childWrap);
       ul.appendChild(li);
@@ -1497,7 +2007,7 @@
     });
   }
 
-  function openRepoFile(repoPath, filename){
+  function openRepoFile(repoPath, filename, inlineView){
     if(!syncConfig){ alert("Connect shared sync (⚙) first to open shared files."); return; }
     fetch("https://api.github.com/repos/" + syncConfig.owner + "/" + syncConfig.repo + "/contents/" + encodeURIComponent(repoPath).replace(/%2F/g, "/"), {
       headers: ghHeaders()
@@ -1510,13 +2020,17 @@
       for(var i=0;i<byteChars.length;i++) byteNumbers[i] = byteChars.charCodeAt(i);
       var blob = new Blob([new Uint8Array(byteNumbers)]);
       var blobUrl = URL.createObjectURL(blob);
-      var a = document.createElement("a");
-      a.href = blobUrl;
-      a.download = filename || "file";
-      a.target = "_blank";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+      if(inlineView){
+        window.open(blobUrl, "_blank");
+      } else {
+        var a = document.createElement("a");
+        a.href = blobUrl;
+        a.download = filename || "file";
+        a.target = "_blank";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
       setTimeout(function(){ URL.revokeObjectURL(blobUrl); }, 30000);
     }).catch(function(){
       alert("Couldn't open that file — it may have been removed, or there's a connection issue.");
