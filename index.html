@@ -442,11 +442,10 @@
     <div class="topbar-row">
       <div class="topbar-title">
         <h1>Dispatch Training — Project Board</h1>
-        <p>Track what's moving, what's next, and what's parked.</p>
+        <p id="greeting">Track what's moving, what's next, and what's parked.</p>
       </div>
       <div class="topbar-actions">
         <span class="sync-status" id="syncStatus"><span class="sync-dot" id="syncDot"></span><span id="syncText">Local only</span></span>
-        <button class="ghost-btn" id="whoAmIBtn" title="Who's using this device?">👤 Set name</button>
         <button class="icon-ghost-btn" id="alertsBtn" title="Alerts" style="position:relative;">
           🔔<span class="alert-badge" id="alertBadge" style="display:none;">0</span>
         </button>
@@ -490,22 +489,6 @@
     <div id="alertsList" style="max-height:360px;overflow-y:auto;"></div>
     <div class="modal-actions">
       <button class="btn-cancel" id="alertsCancel">Close</button>
-    </div>
-  </div>
-</div>
-
-<!-- WHO AM I -->
-<div class="modal-overlay" id="whoAmIOverlay">
-  <div class="modal" style="max-width:340px;">
-    <h3>Who's using this device?</h3>
-    <p class="hint">This is just so tags, alerts, and status requests know who you are — it's saved on this device only, separate from the shared login.</p>
-    <div class="assignee-checks" style="gap:10px;">
-      <button type="button" class="add-top-btn" id="whoAmIBrian" style="flex:1;">Brian</button>
-      <button type="button" class="add-top-btn" id="whoAmIDrew" style="flex:1;">Drew</button>
-    </div>
-    <div class="chip-row" style="margin-top:10px;">
-      <input type="text" id="whoAmICustom" placeholder="Or type your name…">
-      <button type="button" class="chip-add-btn" id="whoAmICustomBtn">Use this</button>
     </div>
   </div>
 </div>
@@ -561,7 +544,7 @@
 
     <div class="row2">
       <div class="field">
-        <label for="m_deadline">Deadline</label>
+        <label for="m_deadline" id="m_deadlineLabel">Deadline</label>
         <input type="date" id="m_deadline">
       </div>
       <div class="field" id="m_revisitWrap">
@@ -617,7 +600,7 @@
   var TABS = [
     {id:"inprogress", label:"In Progress", desc:"Actively being built or delivered right now."},
     {id:"ondeck",     label:"On Deck",     desc:"Ready to go — up next once capacity opens."},
-    {id:"pipeline",   label:"Coming Down the Pipeline", desc:"On the radar for the future."},
+    {id:"pipeline",   label:"Future Projects", desc:"On the radar for the future — not yet started."},
     {id:"rush",       label:"Rush Job",    desc:"Jumped the line — needs attention now."},
     {id:"backburner", label:"Back Burner", desc:"Paused. Revisit on the date noted."},
     {id:"completed",  label:"Completed",   desc:"Finished projects, kept for reference."}
@@ -633,7 +616,6 @@
   var pendingLinks = [];
   var pollTimer = null;
   var syncConfig = null;
-  var WHOAMI_KEY = "breezeWhoAmI_v1";
   var whoAmI = null;
 
   function uid(){
@@ -661,6 +643,7 @@
       title: title || "Untitled project",
       assignees: assignees || [],
       deadline: deadline || "",
+      expectedStart: "",
       revisit: revisit || "",
       priority: "",
       notes: "",
@@ -688,6 +671,7 @@
         if(!Array.isArray(item.links)) item.links = [];
         if(!Array.isArray(item.comments)) item.comments = [];
         if(typeof item.priority !== "string") item.priority = "";
+        if(typeof item.expectedStart !== "string") item.expectedStart = "";
         fix(item.children);
       });
     }
@@ -899,13 +883,19 @@
     showApp(email);
   });
 
+  function deriveNameFromEmail(email){
+    var local = (email.split("@")[0] || "").split(/[.\-_0-9]+/)[0];
+    if(!local) return "Someone";
+    return local.charAt(0).toUpperCase() + local.slice(1).toLowerCase();
+  }
+
   function showApp(email){
     document.getElementById("loginScreen").style.display = "none";
     document.getElementById("app").style.display = "block";
-    document.getElementById("whoami") && (document.getElementById("whoami").textContent = email);
     document.getElementById("importBtn").style.display = (currentRole === "admin") ? "" : "none";
+    whoAmI = deriveNameFromEmail(email);
+    document.getElementById("greeting").textContent = "Welcome, " + whoAmI + " 👋";
     loadSyncConfig();
-    loadWhoAmI();
     loadLocal();
     renderTabs();
     renderMain();
@@ -921,47 +911,7 @@
     } else {
       setSyncStatus("", "Local only — click ⚙ to share with Brian");
     }
-    if(!whoAmI){
-      document.getElementById("whoAmIOverlay").classList.add("show");
-    }
   }
-
-  function loadWhoAmI(){
-    whoAmI = localStorage.getItem(WHOAMI_KEY) || null;
-    updateWhoAmIBtn();
-  }
-  function saveWhoAmI(name){
-    whoAmI = name;
-    localStorage.setItem(WHOAMI_KEY, name);
-    updateWhoAmIBtn();
-  }
-  function updateWhoAmIBtn(){
-    var btn = document.getElementById("whoAmIBtn");
-    if(btn) btn.textContent = whoAmI ? ("👤 " + whoAmI) : "👤 Set name";
-  }
-  document.getElementById("whoAmIBtn").addEventListener("click", function(){
-    document.getElementById("whoAmIOverlay").classList.add("show");
-  });
-  document.getElementById("whoAmIBrian").addEventListener("click", function(){
-    saveWhoAmI("Brian");
-    document.getElementById("whoAmIOverlay").classList.remove("show");
-  });
-  document.getElementById("whoAmIDrew").addEventListener("click", function(){
-    saveWhoAmI("Drew");
-    document.getElementById("whoAmIOverlay").classList.remove("show");
-  });
-  document.getElementById("whoAmICustomBtn").addEventListener("click", function(){
-    var name = document.getElementById("whoAmICustom").value.trim();
-    if(!name) return;
-    saveWhoAmI(name);
-    document.getElementById("whoAmICustom").value = "";
-    document.getElementById("whoAmIOverlay").classList.remove("show");
-  });
-  document.getElementById("whoAmIOverlay").addEventListener("click", function(e){
-    if(e.target === document.getElementById("whoAmIOverlay") && whoAmI){
-      document.getElementById("whoAmIOverlay").classList.remove("show");
-    }
-  });
 
   // ---------- ALERTS ----------
   function updateAlertBadge(){
@@ -982,21 +932,33 @@
     var mine = (data.notifications || []).filter(function(n){ return n.mentioned === whoAmI; })
       .sort(function(a,b){ return b.timestamp.localeCompare(a.timestamp); });
     if(!whoAmI){
-      list.innerHTML = '<div class="alert-empty">Set your name (👤 button) so alerts know who you are.</div>';
+      list.innerHTML = '<div class="alert-empty">Log in to see alerts addressed to you.</div>';
       return;
     }
     if(mine.length === 0){
       list.innerHTML = '<div class="alert-empty">No alerts yet.</div>';
       return;
     }
+    var clearAllBtn = document.createElement("button");
+    clearAllBtn.className = "btn-cancel";
+    clearAllBtn.style.marginBottom = "10px";
+    clearAllBtn.textContent = "Clear all";
+    clearAllBtn.addEventListener("click", function(){
+      if(!confirm("Clear all your alerts? This can't be undone.")) return;
+      data.notifications = (data.notifications || []).filter(function(n){ return n.mentioned !== whoAmI; });
+      save();
+      renderAlerts();
+      updateAlertBadge(); updateStatusBadge();
+    });
+    list.appendChild(clearAllBtn);
     mine.forEach(function(n){
       var div = document.createElement("div");
       div.className = "alert-item";
       var dismiss = document.createElement("button");
       dismiss.className = "alert-dismiss";
-      dismiss.textContent = n.read ? "" : "Mark read ✕";
+      dismiss.textContent = "Clear ✕";
       dismiss.addEventListener("click", function(){
-        n.read = true;
+        data.notifications = (data.notifications || []).filter(function(x){ return x.id !== n.id; });
         save();
         renderAlerts();
         updateAlertBadge(); updateStatusBadge();
@@ -1383,7 +1345,7 @@
     if(!whoAmI){
       var setNameMsg = document.createElement("div");
       setNameMsg.className = "empty-state";
-      setNameMsg.textContent = "Set your name (👤 button in the top bar) to see your personal dashboard.";
+      setNameMsg.textContent = "Log in to see your personal dashboard.";
       panel.appendChild(setNameMsg);
       main.appendChild(panel);
       return;
@@ -1495,6 +1457,9 @@
   });
 
   document.getElementById("alertsBtn").addEventListener("click", function(){
+    (data.notifications || []).forEach(function(n){ if(n.mentioned === whoAmI) n.read = true; });
+    save();
+    updateAlertBadge();
     renderAlerts();
     document.getElementById("alertsOverlay").classList.add("show");
   });
@@ -1713,6 +1678,18 @@
     return search(data[tab]);
   }
 
+  function findParentArray(tab, id){
+    function search(arr){
+      for(var i=0;i<arr.length;i++){
+        if(arr[i].id === id) return arr;
+        var found = search(arr[i].children);
+        if(found) return found;
+      }
+      return null;
+    }
+    return search(data[tab]);
+  }
+
   function countAll(arr){
     var n = 0;
     arr.forEach(function(item){ n += 1 + countAll(item.children); });
@@ -1889,6 +1866,18 @@
         p.textContent = "👤 " + item.assignees.join(", ");
         meta.appendChild(p);
       }
+      if(activeTab === "pipeline" && item.expectedStart){
+        var startDaysAway = daysUntil(item.expectedStart);
+        var ps = document.createElement("span");
+        ps.className = "pill pill-revisit";
+        var startText;
+        if(startDaysAway < 0) startText = " · started " + Math.abs(startDaysAway) + " day" + (Math.abs(startDaysAway) === 1 ? "" : "s") + " ago";
+        else if(startDaysAway === 0) startText = " · starts today";
+        else if(startDaysAway === 1) startText = " · starts in 1 day";
+        else startText = " · starts in " + startDaysAway + " days";
+        ps.textContent = "🕓 " + formatDate(item.expectedStart) + startText;
+        meta.appendChild(ps);
+      }
       if(item.deadline){
         var daysLeft = daysUntil(item.deadline);
         var overdue = !item.completed && daysLeft < 0;
@@ -1926,15 +1915,28 @@
 
       var controls = document.createElement("div");
       controls.className = "node-controls";
+      var thisTab = activeTab, thisItemId = item.id;
 
       if(currentRole === "admin"){
         controls.appendChild(iconBtn("↑", "Move up", function(){
-          var i = arr.indexOf(item);
-          if(i > 0){ arr.splice(i,1); arr.splice(i-1,0,item); save(); window.__redraw(); }
+          var liveArr = findParentArray(thisTab, thisItemId);
+          if(!liveArr){ alert("That project isn't there anymore — someone may have just moved or deleted it. Refreshing."); window.__redraw(); return; }
+          var i = liveArr.findIndex(function(x){ return x.id === thisItemId; });
+          if(i > 0){
+            var moved = liveArr.splice(i,1)[0];
+            liveArr.splice(i-1,0,moved);
+            save(); window.__redraw();
+          }
         }));
         controls.appendChild(iconBtn("↓", "Move down", function(){
-          var i = arr.indexOf(item);
-          if(i < arr.length-1){ arr.splice(i,1); arr.splice(i+1,0,item); save(); window.__redraw(); }
+          var liveArr = findParentArray(thisTab, thisItemId);
+          if(!liveArr){ alert("That project isn't there anymore — someone may have just moved or deleted it. Refreshing."); window.__redraw(); return; }
+          var i = liveArr.findIndex(function(x){ return x.id === thisItemId; });
+          if(i > -1 && i < liveArr.length-1){
+            var moved = liveArr.splice(i,1)[0];
+            liveArr.splice(i+1,0,moved);
+            save(); window.__redraw();
+          }
         }));
 
         if(depth === 0){
@@ -1953,9 +1955,11 @@
           });
           moveSel.addEventListener("change", function(){
             if(!moveSel.value) return;
-            var i = arr.indexOf(item);
-            arr.splice(i,1);
-            data[moveSel.value].push(item);
+            var liveArr = findParentArray(thisTab, thisItemId);
+            if(!liveArr){ alert("That project isn't there anymore — someone may have just moved or deleted it. Refreshing."); renderTabs(); renderMain(); return; }
+            var i = liveArr.findIndex(function(x){ return x.id === thisItemId; });
+            var moved = liveArr.splice(i,1)[0];
+            data[moveSel.value].push(moved);
             save();
             renderTabs();
             renderMain();
@@ -1981,9 +1985,14 @@
 
       if(currentRole === "admin"){
         var delBtn = iconBtn("🗑", "Delete", function(){
-          if(confirm('Delete "' + item.title + '"' + (item.children.length ? " and its sub-items" : "") + "?")){
-            var i = arr.indexOf(item);
-            arr.splice(i,1);
+          var liveArr = findParentArray(thisTab, thisItemId);
+          if(!liveArr){ alert("That project isn't there anymore — it may have already been deleted elsewhere."); window.__redraw(); return; }
+          var liveItem = findNodeById(thisTab, thisItemId);
+          var label = liveItem ? liveItem.title : item.title;
+          var hasChildren = liveItem && liveItem.children && liveItem.children.length;
+          if(confirm('Delete "' + label + '"' + (hasChildren ? " and its sub-items" : "") + "?")){
+            var i = liveArr.findIndex(function(x){ return x.id === thisItemId; });
+            if(i > -1) liveArr.splice(i,1);
             save();
             window.__redraw();
           }
@@ -2352,9 +2361,12 @@
     mLinkUrl.value = "";
     mFileDrop.textContent = "Drag a file here, or click to attach (best under 3MB)";
 
+    var isPipeline = ctx.tab === "pipeline";
+    document.getElementById("m_deadlineLabel").textContent = isPipeline ? "Expected start" : "Deadline";
+
     if(ctx.mode === "edit" && editNode){
       mTitle.value = editNode.title;
-      mDeadline.value = editNode.deadline || "";
+      mDeadline.value = (isPipeline ? editNode.expectedStart : editNode.deadline) || "";
       mRevisit.value = editNode.revisit || "";
       mNotes.value = editNode.notes || "";
       mPriority.value = editNode.priority || "";
@@ -2404,7 +2416,9 @@
         }
         targetArr = parentNode.children;
       }
-      var n = node(title, assignees, mDeadline.value, mRevisit.value);
+      var n = node(title, assignees, "", mRevisit.value);
+      if(modalCtx.tab === "pipeline") n.expectedStart = mDeadline.value;
+      else n.deadline = mDeadline.value;
       n.notes = mNotes.value;
       n.links = pendingLinks.slice();
       n.priority = mPriority.value;
@@ -2420,7 +2434,8 @@
       }
       editTarget.title = title;
       editTarget.assignees = assignees;
-      editTarget.deadline = mDeadline.value;
+      if(modalCtx.tab === "pipeline") editTarget.expectedStart = mDeadline.value;
+      else editTarget.deadline = mDeadline.value;
       editTarget.revisit = mRevisit.value;
       editTarget.notes = mNotes.value;
       editTarget.links = pendingLinks.slice();
