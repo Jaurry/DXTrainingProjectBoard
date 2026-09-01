@@ -217,6 +217,9 @@
   .pill-deadline{background:#fef3e0;color:#a15c00;}
   .pill-deadline.overdue{background:var(--rush-soft);color:var(--rush);}
   .pill-revisit{background:var(--backburner-soft);color:var(--backburner);}
+  .pill-priority-high{background:var(--rush-soft);color:var(--rush);}
+  .pill-priority-medium{background:#fef3e0;color:#a15c00;}
+  .pill-priority-low{background:#e3f1fa;color:var(--primary-dark);}
   .pill-done{background:var(--done-soft);color:var(--done);}
 
   .node-controls{display:flex;gap:4px;align-items:center;flex-shrink:0;flex-wrap:wrap;}
@@ -447,8 +450,12 @@
         <button class="icon-ghost-btn" id="alertsBtn" title="Alerts" style="position:relative;">
           🔔<span class="alert-badge" id="alertBadge" style="display:none;">0</span>
         </button>
+        <button class="ghost-btn" id="dashboardBtn" title="My dashboard">📊 My Dashboard</button>
         <button class="ghost-btn" id="statusBtn" title="Status updates" style="position:relative;">
           📋 Updates<span class="alert-badge" id="statusBadge" style="display:none;">0</span>
+        </button>
+        <button class="ghost-btn" id="feedbackBtn" title="Feedback" style="position:relative;">
+          💡 Feedback<span class="alert-badge" id="feedbackBadge" style="display:none;">0</span>
         </button>
         <button class="ghost-btn" id="refreshBtn">↻ Refresh</button>
         <button class="icon-ghost-btn" id="settingsBtn" title="Shared sync settings">⚙</button>
@@ -464,13 +471,14 @@
   <main id="main"></main>
 </div>
 
-<!-- STATUS UPDATES -->
-<div class="modal-overlay" id="statusOverlay">
-  <div class="modal" style="max-width:560px;">
-    <h3>Status Updates</h3>
-    <div id="statusPanelBody"></div>
+<!-- FEEDBACK -->
+<div class="modal-overlay" id="feedbackOverlay">
+  <div class="modal" style="max-width:520px;max-height:85vh;overflow-y:auto;">
+    <h3>💡 Feedback</h3>
+    <p class="hint">Share an idea, or let us know if something's broken.</p>
+    <div id="feedbackPanelBody"></div>
     <div class="modal-actions">
-      <button class="btn-cancel" id="statusCancel">Close</button>
+      <button class="btn-cancel" id="feedbackCancel">Close</button>
     </div>
   </div>
 </div>
@@ -541,6 +549,16 @@
       <div class="chip-list" id="m_linkList"></div>
     </div>
 
+    <div class="field">
+      <label for="m_priority">Priority</label>
+      <select id="m_priority">
+        <option value="">None</option>
+        <option value="low">Low</option>
+        <option value="medium">Medium</option>
+        <option value="high">High</option>
+      </select>
+    </div>
+
     <div class="row2">
       <div class="field">
         <label for="m_deadline">Deadline</label>
@@ -609,6 +627,7 @@
   var activeTab = "inprogress";
   var modalCtx = null;
   var dragCtx = null;
+  var expandedNotes = {};
   var uidCounter = 0;
   var pendingAssignees = [];
   var pendingLinks = [];
@@ -643,6 +662,7 @@
       assignees: assignees || [],
       deadline: deadline || "",
       revisit: revisit || "",
+      priority: "",
       notes: "",
       links: [],
       comments: [],
@@ -667,6 +687,7 @@
         if(typeof item.notes !== "string") item.notes = "";
         if(!Array.isArray(item.links)) item.links = [];
         if(!Array.isArray(item.comments)) item.comments = [];
+        if(typeof item.priority !== "string") item.priority = "";
         fix(item.children);
       });
     }
@@ -810,12 +831,12 @@
   function startPolling(){
     if(pollTimer) clearInterval(pollTimer);
     pollTimer = setInterval(function(){
-      if(syncConfig) cloudPull(false).then(function(changed){ if(changed){ renderTabs(); renderMain(); updateAlertBadge(); updateStatusBadge(); } });
+      if(syncConfig) cloudPull(false).then(function(changed){ if(changed){ renderTabs(); renderMain(); updateAlertBadge(); updateStatusBadge(); updateFeedbackBadge(); } });
     }, POLL_MS);
   }
 
   document.getElementById("refreshBtn").addEventListener("click", function(){
-    cloudPull(true).then(function(){ renderTabs(); renderMain(); updateAlertBadge(); updateStatusBadge(); });
+    cloudPull(true).then(function(){ renderTabs(); renderMain(); updateAlertBadge(); updateStatusBadge(); updateFeedbackBadge(); });
   });
 
   // Settings modal
@@ -888,13 +909,13 @@
     loadLocal();
     renderTabs();
     renderMain();
-    updateAlertBadge(); updateStatusBadge();
+    updateAlertBadge(); updateStatusBadge(); updateFeedbackBadge();
     if(syncConfig){
       cloudPull(true).then(function(pulled){
         if(!pulled) cloudPush();
         renderTabs();
         renderMain();
-        updateAlertBadge(); updateStatusBadge();
+        updateAlertBadge(); updateStatusBadge(); updateFeedbackBadge();
         startPolling();
       });
     } else {
@@ -1014,6 +1035,7 @@
     var indent = "  ".repeat(depth);
     var lines = [];
     lines.push(indent + (depth > 0 ? "- " : "") + item.title + (item.completed ? " [COMPLETED]" : ""));
+    if(item.priority) lines.push(indent + "    Priority: " + item.priority.charAt(0).toUpperCase() + item.priority.slice(1));
     if(item.assignees && item.assignees.length) lines.push(indent + "    Assigned: " + item.assignees.join(", "));
     if(item.deadline) lines.push(indent + "    Deadline: " + formatDate(item.deadline));
     if(item.notes && item.notes.trim()) lines.push(indent + "    Notes: " + item.notes.trim());
@@ -1034,11 +1056,34 @@
     else badge.style.display = "none";
   }
 
+  function updateFeedbackBadge(){
+    var badge = document.getElementById("feedbackBadge");
+    if(!data){ badge.style.display = "none"; return; }
+    var count = (data.feedback || []).length;
+    if(count > 0){ badge.style.display = "flex"; badge.textContent = count > 9 ? "9+" : String(count); }
+    else badge.style.display = "none";
+  }
+
   var statusView = "list"; // 'list' | 'new' | 'respond'
   var statusRespondingId = null;
 
-  function renderStatusPanel(){
-    var body = document.getElementById("statusPanelBody");
+  function renderStatusPage(main){
+    var panel = document.createElement("div");
+    panel.className = "tab-panel active";
+
+    var head = document.createElement("div");
+    head.className = "panel-head";
+    head.innerHTML = '<div><h2>📋 Status Updates</h2><div class="desc">Request an update, or respond to one someone sent you.</div></div>';
+    panel.appendChild(head);
+
+    var body = document.createElement("div");
+    panel.appendChild(body);
+    main.appendChild(panel);
+
+    renderStatusBody(body);
+  }
+
+  function renderStatusBody(body){
     body.innerHTML = "";
 
     if(statusView === "new"){ renderStatusNewForm(body); return; }
@@ -1047,7 +1092,7 @@
     var newBtn = document.createElement("button");
     newBtn.className = "add-top-btn";
     newBtn.textContent = "+ Request a status update";
-    newBtn.addEventListener("click", function(){ statusView = "new"; renderStatusPanel(); });
+    newBtn.addEventListener("click", function(){ statusView = "new"; renderStatusBody(body); });
     body.appendChild(newBtn);
 
     var forYou = (data.statusRequests || []).filter(function(r){ return r.requestedFrom === whoAmI; });
@@ -1064,7 +1109,7 @@
       body.appendChild(e1);
     }
     forYou.slice().sort(function(a,b){ return b.createdAt.localeCompare(a.createdAt); }).forEach(function(r){
-      body.appendChild(buildStatusItem(r, true));
+      body.appendChild(buildStatusItem(r, true, body));
     });
 
     var t2 = document.createElement("div");
@@ -1078,11 +1123,11 @@
       body.appendChild(e2);
     }
     fromYou.slice().sort(function(a,b){ return b.createdAt.localeCompare(a.createdAt); }).forEach(function(r){
-      body.appendChild(buildStatusItem(r, false));
+      body.appendChild(buildStatusItem(r, false, body));
     });
   }
 
-  function buildStatusItem(r, showRespond){
+  function buildStatusItem(r, showRespond, body){
     var div = document.createElement("div");
     div.className = "status-item";
     var meta = document.createElement("div");
@@ -1092,6 +1137,21 @@
     pill.textContent = r.status === "pending" ? "Pending" : "Completed";
     meta.appendChild(pill);
     meta.appendChild(document.createTextNode(" " + r.itemTitle + " (" + r.tabLabel + ") — requested by " + r.requestedBy + " from " + r.requestedFrom));
+    if(currentRole === "admin"){
+      var delBtn = document.createElement("button");
+      delBtn.className = "icon-btn danger";
+      delBtn.style.float = "right";
+      delBtn.textContent = "🗑";
+      delBtn.title = "Delete this request";
+      delBtn.addEventListener("click", function(){
+        if(!confirm("Delete this status update request?")) return;
+        data.statusRequests = data.statusRequests.filter(function(x){ return x.id !== r.id; });
+        save();
+        updateStatusBadge();
+        renderStatusBody(body);
+      });
+      meta.appendChild(delBtn);
+    }
     div.appendChild(meta);
     if(r.message){
       var msg = document.createElement("div");
@@ -1106,7 +1166,7 @@
       respondBtn.addEventListener("click", function(){
         statusRespondingId = r.id;
         statusView = "respond";
-        renderStatusPanel();
+        renderStatusBody(body);
       });
       div.appendChild(respondBtn);
     }
@@ -1128,7 +1188,7 @@
     var backBtn = document.createElement("button");
     backBtn.className = "btn-cancel";
     backBtn.textContent = "← Back";
-    backBtn.addEventListener("click", function(){ statusView = "list"; renderStatusPanel(); });
+    backBtn.addEventListener("click", function(){ statusView = "list"; renderStatusBody(body); });
     body.appendChild(backBtn);
 
     var t = document.createElement("div");
@@ -1192,7 +1252,7 @@
       updateAlertBadge(); updateStatusBadge();
       updateStatusBadge();
       statusView = "list";
-      renderStatusPanel();
+      renderStatusBody(body);
     });
     body.appendChild(sendBtn);
   }
@@ -1201,7 +1261,7 @@
     var req = (data.statusRequests || []).filter(function(r){ return r.id === statusRespondingId; })[0];
     if(!req){
       statusView = "list";
-      renderStatusPanel();
+      renderStatusBody(body);
       return;
     }
     var project = findNodeById(req.itemTab, req.itemId);
@@ -1209,7 +1269,7 @@
     var backBtn = document.createElement("button");
     backBtn.className = "btn-cancel";
     backBtn.textContent = "← Back";
-    backBtn.addEventListener("click", function(){ statusView = "list"; renderStatusPanel(); });
+    backBtn.addEventListener("click", function(){ statusView = "list"; renderStatusBody(body); });
     body.appendChild(backBtn);
 
     var t = document.createElement("div");
@@ -1258,7 +1318,7 @@
       updateStatusBadge();
       generateStatusPDF(liveReq, project.title, summary.value, statement.value);
       statusView = "list";
-      renderStatusPanel();
+      renderStatusBody(body);
     });
     body.appendChild(genBtn);
   }
@@ -1290,16 +1350,148 @@
     doc.save("Status-Update-" + projectTitle.replace(/[^a-zA-Z0-9]+/g, "-") + ".pdf");
   }
 
+  // ---------- DASHBOARD ----------
+  function findItemsForUser(name){
+    var assigned = [];
+    var tagged = [];
+    function walk(item, tab, tabLabel){
+      if(item.assignees && item.assignees.indexOf(name) !== -1){
+        assigned.push({tab: tab, tabLabel: tabLabel, id: item.id, title: item.title, deadline: item.deadline, priority: item.priority, completed: item.completed});
+      }
+      (item.comments || []).forEach(function(c){
+        if(c.mentions && c.mentions.indexOf(name) !== -1){
+          tagged.push({tab: tab, tabLabel: tabLabel, id: item.id, title: item.title, author: c.author, text: c.text, timestamp: c.timestamp});
+        }
+      });
+      (item.children || []).forEach(function(child){ walk(child, tab, tabLabel); });
+    }
+    TABS.forEach(function(t){
+      data[t.id].forEach(function(item){ walk(item, t.id, t.label); });
+    });
+    return {assigned: assigned, tagged: tagged.sort(function(a,b){ return b.timestamp.localeCompare(a.timestamp); })};
+  }
+
+  function renderDashboardPage(main){
+    var panel = document.createElement("div");
+    panel.className = "tab-panel active";
+
+    var head = document.createElement("div");
+    head.className = "panel-head";
+    head.innerHTML = '<div><h2>📊 My Dashboard</h2><div class="desc">Everything assigned to you, or where someone has tagged you.</div></div>';
+    panel.appendChild(head);
+
+    if(!whoAmI){
+      var setNameMsg = document.createElement("div");
+      setNameMsg.className = "empty-state";
+      setNameMsg.textContent = "Set your name (👤 button in the top bar) to see your personal dashboard.";
+      panel.appendChild(setNameMsg);
+      main.appendChild(panel);
+      return;
+    }
+
+    var results = findItemsForUser(whoAmI);
+
+    var t1 = document.createElement("div");
+    t1.className = "status-section-title";
+    t1.textContent = "Assigned to you (" + results.assigned.length + ")";
+    panel.appendChild(t1);
+
+    if(results.assigned.length === 0){
+      var e1 = document.createElement("div");
+      e1.className = "alert-empty";
+      e1.textContent = "Nothing assigned to you right now.";
+      panel.appendChild(e1);
+    }
+    results.assigned.forEach(function(a){
+      var div = document.createElement("div");
+      div.className = "status-item";
+      var meta = document.createElement("div");
+      meta.className = "status-meta";
+      if(a.priority){
+        var pp = document.createElement("span");
+        pp.className = "pill pill-priority-" + a.priority;
+        var icon = a.priority === "high" ? "🔴" : a.priority === "medium" ? "🟡" : "🟢";
+        pp.textContent = icon + " " + a.priority.charAt(0).toUpperCase() + a.priority.slice(1);
+        pp.style.marginRight = "6px";
+        meta.appendChild(pp);
+      }
+      meta.appendChild(document.createTextNode(a.tabLabel + (a.completed ? " · Completed" : "")));
+      div.appendChild(meta);
+      var titleRow = document.createElement("div");
+      var jumpBtn = document.createElement("button");
+      jumpBtn.className = "node-link-btn";
+      jumpBtn.type = "button";
+      jumpBtn.textContent = a.title + (a.deadline ? " — due " + formatDate(a.deadline) : "");
+      jumpBtn.addEventListener("click", function(){
+        activeTab = a.tab;
+        renderTabs();
+        renderMain();
+      });
+      titleRow.appendChild(jumpBtn);
+      div.appendChild(titleRow);
+      panel.appendChild(div);
+    });
+
+    var t2 = document.createElement("div");
+    t2.className = "status-section-title";
+    t2.textContent = "You're tagged in (" + results.tagged.length + ")";
+    panel.appendChild(t2);
+
+    if(results.tagged.length === 0){
+      var e2 = document.createElement("div");
+      e2.className = "alert-empty";
+      e2.textContent = "No one has tagged you yet.";
+      panel.appendChild(e2);
+    }
+    results.tagged.forEach(function(tg){
+      var div = document.createElement("div");
+      div.className = "status-item";
+      var meta = document.createElement("div");
+      meta.className = "status-meta";
+      meta.textContent = tg.author + " tagged you on \"" + tg.title + "\" (" + tg.tabLabel + ") — " + formatTimestamp(tg.timestamp);
+      div.appendChild(meta);
+      var textDiv = document.createElement("div");
+      textDiv.textContent = tg.text;
+      div.appendChild(textDiv);
+      var jumpBtn = document.createElement("button");
+      jumpBtn.className = "node-link-btn";
+      jumpBtn.type = "button";
+      jumpBtn.style.marginTop = "6px";
+      jumpBtn.textContent = "Go to project";
+      jumpBtn.addEventListener("click", function(){
+        activeTab = tg.tab;
+        renderTabs();
+        renderMain();
+      });
+      div.appendChild(jumpBtn);
+      panel.appendChild(div);
+    });
+
+    main.appendChild(panel);
+  }
+
   document.getElementById("statusBtn").addEventListener("click", function(){
     statusView = "list";
-    renderStatusPanel();
-    document.getElementById("statusOverlay").classList.add("show");
+    activeTab = "statusUpdates";
+    renderTabs();
+    renderMain();
   });
-  document.getElementById("statusCancel").addEventListener("click", function(){
-    document.getElementById("statusOverlay").classList.remove("show");
+
+  document.getElementById("dashboardBtn").addEventListener("click", function(){
+    activeTab = "dashboard";
+    renderTabs();
+    renderMain();
   });
-  document.getElementById("statusOverlay").addEventListener("click", function(e){
-    if(e.target === document.getElementById("statusOverlay")) document.getElementById("statusOverlay").classList.remove("show");
+
+  document.getElementById("feedbackBtn").addEventListener("click", function(){
+    renderFeedbackPanel();
+    document.getElementById("feedbackOverlay").classList.add("show");
+  });
+  document.getElementById("feedbackCancel").addEventListener("click", function(){
+    document.getElementById("feedbackOverlay").classList.remove("show");
+  });
+  document.getElementById("feedbackOverlay").addEventListener("click", function(e){
+    if(e.target === document.getElementById("feedbackOverlay")) document.getElementById("feedbackOverlay").classList.remove("show");
   });
 
   document.getElementById("alertsBtn").addEventListener("click", function(){
@@ -1316,14 +1508,9 @@
   // ---------- FEEDBACK ----------
   var pendingFeedbackFile = null;
 
-  function renderFeedbackTab(main){
-    var panel = document.createElement("div");
-    panel.className = "tab-panel active";
-
-    var head = document.createElement("div");
-    head.className = "panel-head";
-    head.innerHTML = '<div><h2>💡 Feedback</h2><div class="desc">Share an idea, or let us know if something\'s broken.</div></div>';
-    panel.appendChild(head);
+  function renderFeedbackPanel(){
+    var panel = document.getElementById("feedbackPanelBody");
+    panel.innerHTML = "";
 
     var form = document.createElement("div");
     form.className = "feedback-form";
@@ -1389,10 +1576,9 @@
         });
       }
       save();
-      updateAlertBadge(); updateStatusBadge();
+      updateAlertBadge(); updateStatusBadge(); updateFeedbackBadge();
       pendingFeedbackFile = null;
-      renderTabs();
-      renderMain();
+      renderFeedbackPanel();
     });
     form.appendChild(submitBtn);
 
@@ -1419,8 +1605,8 @@
           if(!confirm("Delete this feedback entry?")) return;
           data.feedback = data.feedback.filter(function(x){ return x.id !== f.id; });
           save();
-          renderTabs();
-          renderMain();
+          updateFeedbackBadge();
+          renderFeedbackPanel();
         });
         meta.appendChild(delBtn);
       }
@@ -1446,7 +1632,6 @@
       list.appendChild(empty);
     }
     panel.appendChild(list);
-    main.appendChild(panel);
   }
 
   document.getElementById("logoutBtn").addEventListener("click", function(){
@@ -1503,16 +1688,6 @@
     var strip = document.getElementById("tabstrip");
     strip.innerHTML = "";
 
-    var fbBtn = document.createElement("button");
-    fbBtn.className = "tab-btn" + (activeTab === "feedback" ? " active" : "");
-    fbBtn.innerHTML = '<span class="count">' + (data.feedback ? data.feedback.length : 0) + '</span><span>💡 Feedback</span>';
-    fbBtn.addEventListener("click", function(){
-      activeTab = "feedback";
-      renderTabs();
-      renderMain();
-    });
-    strip.appendChild(fbBtn);
-
     TABS.forEach(function(t){
       var btn = document.createElement("button");
       btn.className = "tab-btn" + (t.id === activeTab ? " active" : "");
@@ -1549,8 +1724,12 @@
     var main = document.getElementById("main");
     main.innerHTML = "";
 
-    if(activeTab === "feedback"){
-      renderFeedbackTab(main);
+    if(activeTab === "statusUpdates"){
+      renderStatusPage(main);
+      return;
+    }
+    if(activeTab === "dashboard"){
+      renderDashboardPage(main);
       return;
     }
 
@@ -1697,6 +1876,13 @@
 
       var meta = document.createElement("div");
       meta.className = "node-meta";
+      if(item.priority){
+        var pp = document.createElement("span");
+        pp.className = "pill pill-priority-" + item.priority;
+        var priorityIcon = item.priority === "high" ? "🔴" : item.priority === "medium" ? "🟡" : "🟢";
+        pp.textContent = priorityIcon + " " + item.priority.charAt(0).toUpperCase() + item.priority.slice(1);
+        meta.appendChild(pp);
+      }
       if(item.assignees && item.assignees.length){
         var p = document.createElement("span");
         p.className = "pill pill-assignee";
@@ -1788,7 +1974,8 @@
       var commentCount = item.comments ? item.comments.length : 0;
       notesToggle.innerHTML = "💬 Notes" + (commentCount ? " (" + commentCount + ")" : "");
       notesToggle.addEventListener("click", function(){
-        notesBlock.classList.toggle("show");
+        expandedNotes[item.id] = !expandedNotes[item.id];
+        notesBlock.classList.toggle("show", expandedNotes[item.id]);
       });
       controls.appendChild(notesToggle);
 
@@ -1833,7 +2020,7 @@
       }
 
       var notesBlock = document.createElement("div");
-      notesBlock.className = "node-notes";
+      notesBlock.className = "node-notes" + (expandedNotes[item.id] ? " show" : "");
 
       if(item.notes && item.notes.trim()){
         var notesTextEl = document.createElement("div");
@@ -1971,6 +2158,7 @@
   var mAddChip = document.getElementById("m_addChip");
   var mChipList = document.getElementById("m_chipList");
   var mDeadline = document.getElementById("m_deadline");
+  var mPriority = document.getElementById("m_priority");
   var mRevisit = document.getElementById("m_revisit");
   var mNotes = document.getElementById("m_notes");
   var mLinkLabel = document.getElementById("m_linkLabel");
@@ -2169,11 +2357,13 @@
       mDeadline.value = editNode.deadline || "";
       mRevisit.value = editNode.revisit || "";
       mNotes.value = editNode.notes || "";
+      mPriority.value = editNode.priority || "";
     } else {
       mTitle.value = "";
       mDeadline.value = "";
       mRevisit.value = "";
       mNotes.value = "";
+      mPriority.value = "";
     }
     overlay.classList.add("show");
     setTimeout(function(){ mTitle.focus(); }, 30);
@@ -2217,6 +2407,7 @@
       var n = node(title, assignees, mDeadline.value, mRevisit.value);
       n.notes = mNotes.value;
       n.links = pendingLinks.slice();
+      n.priority = mPriority.value;
       targetArr.push(n);
     } else {
       var editTarget = findNodeById(modalCtx.tab, modalCtx.nodeId);
@@ -2233,6 +2424,7 @@
       editTarget.revisit = mRevisit.value;
       editTarget.notes = mNotes.value;
       editTarget.links = pendingLinks.slice();
+      editTarget.priority = mPriority.value;
     }
     save();
     closeModal();
