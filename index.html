@@ -273,6 +273,36 @@
     border-radius:9px;padding:0 14px;font-weight:700;cursor:pointer;font-size:13px;
   }
   .chip-list{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px;}
+  .field textarea{
+    width:100%;padding:10px 11px;border-radius:9px;border:1.5px solid var(--border);
+    font-size:14px;font-family:'Inter',sans-serif;background:#fbfdfe;color:var(--ink);
+    resize:vertical;min-height:64px;
+  }
+  .field textarea:focus{outline:none;border-color:var(--primary);background:#fff;}
+  .link-chip{background:#eef8f0;color:var(--done);}
+  .link-row-inputs{display:flex;gap:6px;margin-bottom:8px;}
+  .link-row-inputs input{padding:9px 11px;border-radius:9px;border:1.5px solid var(--border);font-size:13px;font-family:'Inter',sans-serif;}
+  .link-row-inputs input.link-label-input{flex:0 0 34%;}
+  .link-row-inputs input.link-url-input{flex:1;}
+  .node-links{display:flex;flex-wrap:wrap;gap:6px;padding:0 12px 10px 12px;margin-top:-4px;}
+  .node-link-btn{
+    display:inline-flex;align-items:center;gap:5px;background:#eef8f0;color:var(--done);
+    font-size:11.5px;font-weight:600;padding:4px 9px;border-radius:99px;text-decoration:none;
+    border:1px solid #d6efdc;
+  }
+  .node-link-btn:hover{background:#e0f4e5;}
+  .notes-toggle{
+    background:none;border:1px solid var(--border);color:var(--ink-soft);
+    font-size:11px;font-weight:600;padding:3px 9px;border-radius:99px;cursor:pointer;
+    font-family:'Inter',sans-serif;display:inline-flex;align-items:center;gap:4px;
+  }
+  .notes-toggle:hover{background:var(--border-soft);}
+  .node-notes{
+    display:none;margin:0 12px 10px 12px;padding:10px 12px;background:#fbfdfe;
+    border:1px solid var(--border-soft);border-radius:9px;font-size:13px;
+    color:var(--ink-soft);white-space:pre-wrap;line-height:1.5;
+  }
+  .node-notes.show{display:block;}
   .chip{
     background:#e3f1fa;color:var(--primary-dark);font-size:12px;font-weight:600;
     padding:4px 6px 4px 10px;border-radius:99px;display:flex;align-items:center;gap:6px;
@@ -370,6 +400,21 @@
       <div class="chip-list" id="m_chipList"></div>
     </div>
 
+    <div class="field">
+      <label for="m_notes">Notes</label>
+      <textarea id="m_notes" placeholder="Any context, status updates, or details worth keeping..."></textarea>
+    </div>
+
+    <div class="field">
+      <label>Links &amp; documents</label>
+      <div class="link-row-inputs">
+        <input type="text" id="m_linkLabel" class="link-label-input" placeholder="Label (e.g. Trip Sheet Doc)">
+        <input type="text" id="m_linkUrl" class="link-url-input" placeholder="https://...">
+        <button type="button" class="chip-add-btn" id="m_addLink">+ Add</button>
+      </div>
+      <div class="chip-list" id="m_linkList"></div>
+    </div>
+
     <div class="row2">
       <div class="field">
         <label for="m_deadline">Deadline</label>
@@ -437,6 +482,7 @@
   var dragCtx = null;
   var uidCounter = 0;
   var pendingAssignees = [];
+  var pendingLinks = [];
   var pollTimer = null;
   var syncConfig = null;
 
@@ -463,6 +509,8 @@
       assignees: assignees || [],
       deadline: deadline || "",
       revisit: revisit || "",
+      notes: "",
+      links: [],
       completed: false,
       children: []
     };
@@ -478,6 +526,8 @@
         }
         if(!Array.isArray(item.assignees)) item.assignees = [];
         if(!Array.isArray(item.children)) item.children = [];
+        if(typeof item.notes !== "string") item.notes = "";
+        if(!Array.isArray(item.links)) item.links = [];
         fix(item.children);
       });
     }
@@ -942,10 +992,23 @@
         meta.appendChild(p);
       }
       if(item.deadline){
-        var overdue = !item.completed && new Date(item.deadline) < new Date(new Date().toDateString());
+        var daysLeft = daysUntil(item.deadline);
+        var overdue = !item.completed && daysLeft < 0;
         var pd = document.createElement("span");
         pd.className = "pill pill-deadline" + (overdue ? " overdue" : "");
-        pd.textContent = "📅 " + formatDate(item.deadline) + (overdue ? " · overdue" : "");
+        var countdownText;
+        if(item.completed){
+          countdownText = "";
+        } else if(daysLeft < 0){
+          countdownText = " · overdue by " + Math.abs(daysLeft) + " day" + (Math.abs(daysLeft) === 1 ? "" : "s");
+        } else if(daysLeft === 0){
+          countdownText = " · due today";
+        } else if(daysLeft === 1){
+          countdownText = " · 1 day left";
+        } else {
+          countdownText = " · " + daysLeft + " days left";
+        }
+        pd.textContent = "📅 " + formatDate(item.deadline) + countdownText;
         meta.appendChild(pd);
       }
       if(item.revisit){
@@ -1005,6 +1068,17 @@
         openModal({mode:"edit", tab: activeTab, nodeId: item.id});
       }));
 
+      if(item.notes && item.notes.trim()){
+        var notesToggle = document.createElement("button");
+        notesToggle.className = "notes-toggle";
+        notesToggle.type = "button";
+        notesToggle.innerHTML = "📝 Notes";
+        notesToggle.addEventListener("click", function(){
+          notesBlock.classList.toggle("show");
+        });
+        controls.appendChild(notesToggle);
+      }
+
       var delBtn = iconBtn("🗑", "Delete", function(){
         if(confirm('Delete "' + item.title + '"' + (item.children.length ? " and its sub-items" : "") + "?")){
           var i = arr.indexOf(item);
@@ -1018,6 +1092,26 @@
 
       row.appendChild(controls);
       li.appendChild(row);
+
+      if(item.links && item.links.length){
+        var linksRow = document.createElement("div");
+        linksRow.className = "node-links";
+        item.links.forEach(function(link){
+          var a = document.createElement("a");
+          a.className = "node-link-btn";
+          a.href = link.url;
+          a.target = "_blank";
+          a.rel = "noopener";
+          a.textContent = "🔗 " + (link.label || link.url);
+          linksRow.appendChild(a);
+        });
+        li.appendChild(linksRow);
+      }
+
+      var notesBlock = document.createElement("div");
+      notesBlock.className = "node-notes";
+      notesBlock.textContent = item.notes || "";
+      if(item.notes && item.notes.trim()) li.appendChild(notesBlock);
 
       var childWrap = document.createElement("div");
       childWrap.className = "node-children-wrap";
@@ -1051,6 +1145,15 @@
     return b;
   }
 
+  function daysUntil(iso){
+    var parts = iso.split("-");
+    var target = new Date(parseInt(parts[0]), parseInt(parts[1])-1, parseInt(parts[2]));
+    var today = new Date();
+    today.setHours(0,0,0,0);
+    target.setHours(0,0,0,0);
+    return Math.round((target - today) / 86400000);
+  }
+
   function formatDate(iso){
     if(!iso) return "";
     var parts = iso.split("-");
@@ -1069,6 +1172,44 @@
   var mChipList = document.getElementById("m_chipList");
   var mDeadline = document.getElementById("m_deadline");
   var mRevisit = document.getElementById("m_revisit");
+  var mNotes = document.getElementById("m_notes");
+  var mLinkLabel = document.getElementById("m_linkLabel");
+  var mLinkUrl = document.getElementById("m_linkUrl");
+  var mAddLink = document.getElementById("m_addLink");
+  var mLinkList = document.getElementById("m_linkList");
+
+  function renderLinkChips(){
+    mLinkList.innerHTML = "";
+    pendingLinks.forEach(function(link){
+      var chip = document.createElement("span");
+      chip.className = "chip link-chip";
+      chip.textContent = link.label || link.url;
+      chip.title = link.url;
+      var x = document.createElement("button");
+      x.type = "button";
+      x.textContent = "×";
+      x.addEventListener("click", function(){
+        pendingLinks = pendingLinks.filter(function(l){ return l !== link; });
+        renderLinkChips();
+      });
+      chip.appendChild(x);
+      mLinkList.appendChild(chip);
+    });
+  }
+
+  mAddLink.addEventListener("click", function(){
+    var url = mLinkUrl.value.trim();
+    if(!url) return;
+    if(!/^https?:\/\//i.test(url)) url = "https://" + url;
+    var label = mLinkLabel.value.trim();
+    pendingLinks.push({label: label, url: url});
+    mLinkLabel.value = "";
+    mLinkUrl.value = "";
+    renderLinkChips();
+  });
+  mLinkUrl.addEventListener("keydown", function(e){
+    if(e.key === "Enter"){ e.preventDefault(); mAddLink.click(); }
+  });
 
   function renderChips(){
     mChipList.innerHTML = "";
@@ -1110,14 +1251,21 @@
     pendingAssignees = existing.filter(function(n){ return n !== "Brian" && n !== "Drew"; });
     renderChips();
 
+    pendingLinks = editNode && Array.isArray(editNode.links) ? editNode.links.slice() : [];
+    renderLinkChips();
+    mLinkLabel.value = "";
+    mLinkUrl.value = "";
+
     if(ctx.mode === "edit" && editNode){
       mTitle.value = editNode.title;
       mDeadline.value = editNode.deadline || "";
       mRevisit.value = editNode.revisit || "";
+      mNotes.value = editNode.notes || "";
     } else {
       mTitle.value = "";
       mDeadline.value = "";
       mRevisit.value = "";
+      mNotes.value = "";
     }
     overlay.classList.add("show");
     setTimeout(function(){ mTitle.focus(); }, 30);
@@ -1159,6 +1307,8 @@
         targetArr = parentNode.children;
       }
       var n = node(title, assignees, mDeadline.value, mRevisit.value);
+      n.notes = mNotes.value;
+      n.links = pendingLinks.slice();
       targetArr.push(n);
     } else {
       var editTarget = findNodeById(modalCtx.tab, modalCtx.nodeId);
@@ -1173,6 +1323,8 @@
       editTarget.assignees = assignees;
       editTarget.deadline = mDeadline.value;
       editTarget.revisit = mRevisit.value;
+      editTarget.notes = mNotes.value;
+      editTarget.links = pendingLinks.slice();
     }
     save();
     closeModal();
