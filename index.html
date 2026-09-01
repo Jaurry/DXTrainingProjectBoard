@@ -593,7 +593,8 @@
         return cloudPull(false).then(function(){
           renderTabs();
           renderMain();
-          setSyncStatus("err", "Brian saved changes first — refreshed to the latest. Please redo your edit.");
+          setSyncStatus("err", "Someone else saved changes first — refreshed to latest");
+          alert("Someone else saved a change to the board right before you. The board has been refreshed to their latest version — your last change didn't go through. Please redo it now that you're looking at the current version.");
         });
       }
       if(!res.ok) throw new Error("HTTP " + res.status);
@@ -771,6 +772,18 @@
     });
   }
 
+  function findNodeById(tab, id){
+    function search(arr){
+      for(var i=0;i<arr.length;i++){
+        if(arr[i].id === id) return arr[i];
+        var found = search(arr[i].children);
+        if(found) return found;
+      }
+      return null;
+    }
+    return search(data[tab]);
+  }
+
   function countAll(arr){
     var n = 0;
     arr.forEach(function(item){ n += 1 + countAll(item.children); });
@@ -802,7 +815,7 @@
     addBtn.className = "add-top-btn";
     addBtn.textContent = "+ Add project";
     addBtn.addEventListener("click", function(){
-      openModal({mode:"add", tab: activeTab, parentArray: data[activeTab], node:null});
+      openModal({mode:"add", tab: activeTab, parentId: null});
     });
     actions.appendChild(addBtn);
 
@@ -989,7 +1002,7 @@
       }
 
       controls.appendChild(iconBtn("✎", "Edit", function(){
-        openModal({mode:"edit", tab: activeTab, parentArray: arr, node: item});
+        openModal({mode:"edit", tab: activeTab, nodeId: item.id});
       }));
 
       var delBtn = iconBtn("🗑", "Delete", function(){
@@ -1017,7 +1030,7 @@
       addChildBtn.className = "add-child-btn";
       addChildBtn.textContent = "+ Add sub-item";
       addChildBtn.addEventListener("click", function(){
-        openModal({mode:"add", tab: activeTab, parentArray: item.children, node:null});
+        openModal({mode:"add", tab: activeTab, parentId: item.id});
       });
       addChildRow.appendChild(addChildBtn);
       childWrap.appendChild(addChildRow);
@@ -1090,16 +1103,17 @@
   function openModal(ctx){
     modalCtx = ctx;
     document.getElementById("modalTitle").textContent = ctx.mode === "add" ? "Add project" : "Edit project";
-    var existing = ctx.mode === "edit" ? ctx.node.assignees.slice() : [];
+    var editNode = ctx.mode === "edit" ? findNodeById(ctx.tab, ctx.nodeId) : null;
+    var existing = editNode ? editNode.assignees.slice() : [];
     mBrian.checked = existing.indexOf("Brian") !== -1;
     mDrew.checked = existing.indexOf("Drew") !== -1;
     pendingAssignees = existing.filter(function(n){ return n !== "Brian" && n !== "Drew"; });
     renderChips();
 
-    if(ctx.mode === "edit"){
-      mTitle.value = ctx.node.title;
-      mDeadline.value = ctx.node.deadline || "";
-      mRevisit.value = ctx.node.revisit || "";
+    if(ctx.mode === "edit" && editNode){
+      mTitle.value = editNode.title;
+      mDeadline.value = editNode.deadline || "";
+      mRevisit.value = editNode.revisit || "";
     } else {
       mTitle.value = "";
       mDeadline.value = "";
@@ -1126,14 +1140,39 @@
     if(mDrew.checked) assignees.push("Drew");
     assignees = assignees.concat(pendingAssignees);
 
+    // Resolve the destination fresh, right now — not from whatever was
+    // captured when the form first opened, in case a background sync
+    // refresh swapped the data in the meantime.
     if(modalCtx.mode === "add"){
+      var targetArr;
+      if(modalCtx.parentId === null){
+        targetArr = data[modalCtx.tab];
+      } else {
+        var parentNode = findNodeById(modalCtx.tab, modalCtx.parentId);
+        if(!parentNode){
+          alert("That project isn't there anymore — it may have just been moved or deleted on someone else's screen. Please try again.");
+          closeModal();
+          renderTabs();
+          renderMain();
+          return;
+        }
+        targetArr = parentNode.children;
+      }
       var n = node(title, assignees, mDeadline.value, mRevisit.value);
-      modalCtx.parentArray.push(n);
+      targetArr.push(n);
     } else {
-      modalCtx.node.title = title;
-      modalCtx.node.assignees = assignees;
-      modalCtx.node.deadline = mDeadline.value;
-      modalCtx.node.revisit = mRevisit.value;
+      var editTarget = findNodeById(modalCtx.tab, modalCtx.nodeId);
+      if(!editTarget){
+        alert("That project isn't there anymore — it may have just been moved or deleted on someone else's screen. Please refresh and try again.");
+        closeModal();
+        renderTabs();
+        renderMain();
+        return;
+      }
+      editTarget.title = title;
+      editTarget.assignees = assignees;
+      editTarget.deadline = mDeadline.value;
+      editTarget.revisit = mRevisit.value;
     }
     save();
     closeModal();
