@@ -508,11 +508,13 @@
         <label><input type="checkbox" id="m_brian"> Brian</label>
         <label><input type="checkbox" id="m_drew"> Drew</label>
       </div>
-      <div class="chip-row">
-        <input type="text" id="m_customName" placeholder="Write in a name…">
-        <button type="button" class="chip-add-btn" id="m_addChip">+ Add</button>
+      <div id="m_customAssigneeWrap">
+        <div class="chip-row">
+          <input type="text" id="m_customName" placeholder="Write in a name…">
+          <button type="button" class="chip-add-btn" id="m_addChip">+ Add</button>
+        </div>
+        <div class="chip-list" id="m_chipList"></div>
       </div>
-      <div class="chip-list" id="m_chipList"></div>
     </div>
 
     <div class="field">
@@ -599,6 +601,7 @@
 
   var TABS = [
     {id:"inprogress", label:"In Progress", desc:"Actively being built or delivered right now."},
+    {id:"projectRequests", label:"Project Requests", desc:"New project ideas submitted for review."},
     {id:"ondeck",     label:"On Deck",     desc:"Ready to go — up next once capacity opens."},
     {id:"pipeline",   label:"Future Projects", desc:"On the radar for the future — not yet started."},
     {id:"rush",       label:"Rush Job",    desc:"Jumped the line — needs attention now."},
@@ -1729,11 +1732,11 @@
 
     var addBtn = document.createElement("button");
     addBtn.className = "add-top-btn";
-    addBtn.textContent = "+ Add project";
+    addBtn.textContent = activeTab === "projectRequests" ? "+ Submit project request" : "+ Add project";
     addBtn.addEventListener("click", function(){
       openModal({mode:"add", tab: activeTab, parentId: null});
     });
-    if(currentRole === "admin") actions.appendChild(addBtn);
+    if(currentRole === "admin" || activeTab === "projectRequests") actions.appendChild(addBtn);
 
     head.appendChild(actions);
     panel.appendChild(head);
@@ -2362,7 +2365,10 @@
     mFileDrop.textContent = "Drag a file here, or click to attach (best under 3MB)";
 
     var isPipeline = ctx.tab === "pipeline";
-    document.getElementById("m_deadlineLabel").textContent = isPipeline ? "Expected start" : "Deadline";
+    var isProjectRequest = ctx.tab === "projectRequests";
+    document.getElementById("m_deadlineLabel").textContent = isPipeline ? "Expected start" : (isProjectRequest ? "Deadline request" : "Deadline");
+    document.getElementById("m_revisitWrap").style.display = isProjectRequest ? "none" : "";
+    document.getElementById("m_customAssigneeWrap").style.display = isProjectRequest ? "none" : "";
 
     if(ctx.mode === "edit" && editNode){
       mTitle.value = editNode.title;
@@ -2396,7 +2402,7 @@
     var assignees = [];
     if(mBrian.checked) assignees.push("Brian");
     if(mDrew.checked) assignees.push("Drew");
-    assignees = assignees.concat(pendingAssignees);
+    if(modalCtx.tab !== "projectRequests") assignees = assignees.concat(pendingAssignees);
 
     // Resolve the destination fresh, right now — not from whatever was
     // captured when the form first opened, in case a background sync
