@@ -283,10 +283,10 @@
   }
   .reaction-add-btn:hover{background:var(--border-soft);}
   .reaction-picker{
-    display:none;gap:4px;background:#fff;border:1px solid var(--border);border-radius:99px;
-    padding:4px 6px;box-shadow:var(--shadow);position:relative;
+    display:none;gap:3px;background:#fff;border:1px solid var(--border);border-radius:14px;
+    padding:5px 6px;box-shadow:var(--shadow);max-width:220px;flex-wrap:wrap;
   }
-  .reaction-picker.show{display:inline-flex;}
+  .reaction-add-wrap:hover .reaction-picker{display:flex;}
   .reaction-picker button{
     background:none;border:none;font-size:16px;cursor:pointer;padding:2px 3px;border-radius:6px;
   }
@@ -855,7 +855,24 @@
     };
   }
 
+  var syncQueue = Promise.resolve();
+
+  function queueSync(fn){
+    var result = syncQueue.then(fn);
+    // Keep the chain alive even if this particular step fails, so later
+    // queued operations still get their turn instead of stalling forever.
+    syncQueue = result.catch(function(){});
+    return result;
+  }
+
   function cloudPull(showBusy){
+    // Routed through the same queue as pushes: a background check can no
+    // longer land in the middle of an in-flight save and clobber it with
+    // a moment-stale copy of the file — everything happens strictly in turn.
+    return queueSync(function(){ return doCloudPull(showBusy); });
+  }
+
+  function doCloudPull(showBusy){
     if(!syncConfig || !syncConfig.owner || !syncConfig.repo || !syncConfig.token){
       setSyncStatus("", "Local only");
       return Promise.resolve(false);
@@ -889,15 +906,13 @@
       });
   }
 
-  var pushQueue = Promise.resolve();
-
   function cloudPush(){
-    // Every call joins a single queue, so two rapid saves (e.g. adding two
-    // tasks back-to-back) can never both read the same "current version"
-    // and race each other — the second always waits for the first to
-    // fully land (and its version marker to update) before it even starts.
-    pushQueue = pushQueue.then(function(){ return doCloudPush(3); });
-    return pushQueue;
+    // Every call joins the same single queue as pulls, so two rapid saves
+    // (e.g. reacting to two different posts back-to-back) — and the
+    // background 25-second check — can never overlap or race each other.
+    // Each one always waits for whatever came before it to fully land
+    // (and its version marker to update) before it even starts.
+    return queueSync(function(){ return doCloudPush(3); });
   }
 
   function doCloudPush(retriesLeft){
@@ -933,7 +948,7 @@
             });
         }
         // Genuinely stuck after several tries — refresh and ask the person to redo it.
-        return cloudPull(false).then(function(){
+        return doCloudPull(false).then(function(){
           renderTabs();
           renderMain();
           setSyncStatus("err", "Someone else saved changes first — refreshed to latest");
@@ -2086,7 +2101,7 @@
       var reactionBar = document.createElement("div");
       reactionBar.className = "reaction-bar";
       var reactionTab = activeTab, reactionItemId = item.id;
-      var REACTION_CHOICES = ["👍","🎉","❤️","👏","😂","👀"];
+      var REACTION_CHOICES = ["👍","👎","🎉","❤️","👏","😂","👀","🔥","💯","🙌","💩","✅"];
 
       Object.keys(item.reactions || {}).forEach(function(emoji){
         var people = item.reactions[emoji] || [];
@@ -2113,6 +2128,7 @@
       });
 
       var pickerWrap = document.createElement("span");
+      pickerWrap.className = "reaction-add-wrap";
       pickerWrap.style.position = "relative";
       var addReactionBtn = document.createElement("button");
       addReactionBtn.type = "button";
@@ -2136,13 +2152,9 @@
           else list.splice(idx, 1);
           liveNode.reactions[emoji] = list;
           save();
-          picker.classList.remove("show");
           window.__redraw();
         });
         picker.appendChild(choiceBtn);
-      });
-      addReactionBtn.addEventListener("click", function(){
-        picker.classList.toggle("show");
       });
       pickerWrap.appendChild(addReactionBtn);
       pickerWrap.appendChild(picker);
