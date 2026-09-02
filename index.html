@@ -823,8 +823,9 @@
       });
   }
 
-  function cloudPush(){
+  function cloudPush(retriesLeft){
     if(!syncConfig || !syncConfig.owner || !syncConfig.repo || !syncConfig.token) return;
+    if(typeof retriesLeft !== "number") retriesLeft = 3;
     var body = {
       message: "Update project board data",
       content: b64EncodeUtf8(JSON.stringify(data, null, 2)),
@@ -838,7 +839,24 @@
       body: JSON.stringify(body)
     }).then(function(res){
       if(res.status === 409){
-        // Someone else saved in the meantime — don't overwrite their work.
+        if(retriesLeft > 0){
+          // Quietly grab just the latest sha (without touching what's on screen)
+          // and retry with the same data a moment later. Most conflicts are
+          // brief timing collisions that clear up on their own this way.
+          setSyncStatus("", "Syncing…");
+          return fetch(ghUrl() + "?ref=" + GH_BRANCH, { headers: ghHeaders() })
+            .then(function(res2){ return res2.ok ? res2.json() : null; })
+            .then(function(json2){
+              if(json2 && json2.sha){
+                syncConfig.sha = json2.sha;
+                saveSyncConfig(syncConfig);
+              }
+              return new Promise(function(resolve){
+                setTimeout(function(){ resolve(cloudPush(retriesLeft - 1)); }, 500);
+              });
+            });
+        }
+        // Genuinely stuck after several tries — refresh and ask the person to redo it.
         return cloudPull(false).then(function(){
           renderTabs();
           renderMain();
