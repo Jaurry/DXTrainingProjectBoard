@@ -499,6 +499,17 @@
   </div>
 </div>
 
+<!-- DOCUMENTS -->
+<div class="modal-overlay" id="docsOverlay">
+  <div class="modal" style="max-width:480px;max-height:85vh;overflow-y:auto;">
+    <h3 id="docsTitle">Documents</h3>
+    <div id="docsBody"></div>
+    <div class="modal-actions">
+      <button class="btn-cancel" id="docsCancel">Close</button>
+    </div>
+  </div>
+</div>
+
 <!-- FEEDBACK -->
 <div class="modal-overlay" id="feedbackOverlay">
   <div class="modal" style="max-width:520px;max-height:85vh;overflow-y:auto;">
@@ -644,6 +655,7 @@
   var dragCtx = null;
   var expandedNotes = {};
   var expandedLinks = {};
+  var editingCommentId = null;
   var uidCounter = 0;
   var pendingAssignees = [];
   var pendingLinks = [];
@@ -1970,17 +1982,15 @@
       controls.className = "node-controls";
       var thisTab = activeTab, thisItemId = item.id;
 
-      if(item.links && item.links.length){
-        var attachBtn = document.createElement("button");
-        attachBtn.className = "icon-btn";
-        attachBtn.title = item.links.length + " attachment" + (item.links.length === 1 ? "" : "s") + " — click to view";
-        attachBtn.innerHTML = "📎<span style='font-size:10px;font-weight:700;margin-left:2px;'>" + item.links.length + "</span>";
-        attachBtn.addEventListener("click", function(){
-          expandedLinks[thisItemId] = !expandedLinks[thisItemId];
-          linksRow.classList.toggle("show", expandedLinks[thisItemId]);
-        });
-        controls.appendChild(attachBtn);
-      }
+      var attachBtn = document.createElement("button");
+      attachBtn.className = "icon-btn";
+      var attachCount = item.links ? item.links.length : 0;
+      attachBtn.title = attachCount ? (attachCount + " document" + (attachCount === 1 ? "" : "s") + " — click to view or add") : "Add a document";
+      attachBtn.innerHTML = "📎" + (attachCount ? "<span style='font-size:10px;font-weight:700;margin-left:2px;'>" + attachCount + "</span>" : "");
+      attachBtn.addEventListener("click", function(){
+        openDocsPanel(thisTab, thisItemId);
+      });
+      controls.appendChild(attachBtn);
 
       if(currentRole === "admin"){
         controls.appendChild(iconBtn("↑", "Move up", function(){
@@ -2069,30 +2079,6 @@
       row.appendChild(controls);
       li.appendChild(row);
 
-      if(item.links && item.links.length){
-        var linksRow = document.createElement("div");
-        linksRow.className = "node-links" + (expandedLinks[item.id] ? " show" : "");
-        item.links.forEach(function(link){
-          if(link.repoPath){
-            var fbtn = document.createElement("button");
-            fbtn.type = "button";
-            fbtn.className = "node-link-btn";
-            fbtn.textContent = "📎 " + (link.label || "file");
-            fbtn.addEventListener("click", function(){ openRepoFile(link.repoPath, link.label, false, link.mimeType); });
-            linksRow.appendChild(fbtn);
-          } else {
-            var a = document.createElement("a");
-            a.className = "node-link-btn";
-            a.href = link.url;
-            a.target = "_blank";
-            a.rel = "noopener";
-            a.textContent = "🔗 " + (link.label || link.url);
-            linksRow.appendChild(a);
-          }
-        });
-        li.appendChild(linksRow);
-      }
-
       var notesBlock = document.createElement("div");
       notesBlock.className = "node-notes" + (expandedNotes[item.id] ? " show" : "");
 
@@ -2104,22 +2090,75 @@
       }
 
       var commentsWrap = document.createElement("div");
+      var commentsTab = activeTab, commentsItemId = item.id;
       (item.comments || []).slice().sort(function(a,b){ return a.timestamp.localeCompare(b.timestamp); }).forEach(function(c){
         var cDiv = document.createElement("div");
         cDiv.className = "comment-item";
-        var cMeta = document.createElement("div");
-        cMeta.className = "comment-meta";
-        cMeta.textContent = (c.author || "Someone") + " · " + formatTimestamp(c.timestamp);
-        cDiv.appendChild(cMeta);
-        var cText = document.createElement("div");
-        if(c.mentions && c.mentions.length){
-          var mSpan = document.createElement("span");
-          mSpan.className = "comment-mentions";
-          mSpan.textContent = c.mentions.map(function(m){ return "@" + m; }).join(" ") + " ";
-          cText.appendChild(mSpan);
+
+        if(editingCommentId === c.id){
+          var editArea = document.createElement("textarea");
+          editArea.value = c.text;
+          editArea.style.cssText = "width:100%;padding:7px 9px;border-radius:7px;border:1.5px solid var(--border);font-size:13px;font-family:'Inter',sans-serif;min-height:50px;margin-bottom:6px;";
+          cDiv.appendChild(editArea);
+          var editActions = document.createElement("div");
+          editActions.style.cssText = "display:flex;gap:6px;justify-content:flex-end;";
+          var saveBtn = document.createElement("button");
+          saveBtn.className = "comment-post-btn";
+          saveBtn.type = "button";
+          saveBtn.textContent = "Save";
+          saveBtn.addEventListener("click", function(){
+            var newText = editArea.value.trim();
+            if(!newText) return;
+            var liveNode = findNodeById(commentsTab, commentsItemId);
+            if(!liveNode){ alert("That project isn't there anymore."); editingCommentId = null; window.__redraw(); return; }
+            var liveComment = (liveNode.comments || []).filter(function(x){ return x.id === c.id; })[0];
+            if(liveComment){
+              liveComment.text = newText;
+              liveComment.editedAt = new Date().toISOString();
+              save();
+            }
+            editingCommentId = null;
+            window.__redraw();
+          });
+          var cancelBtn = document.createElement("button");
+          cancelBtn.className = "btn-cancel";
+          cancelBtn.type = "button";
+          cancelBtn.textContent = "Cancel";
+          cancelBtn.style.padding = "6px 12px";
+          cancelBtn.style.fontSize = "12.5px";
+          cancelBtn.addEventListener("click", function(){
+            editingCommentId = null;
+            window.__redraw();
+          });
+          editActions.appendChild(cancelBtn);
+          editActions.appendChild(saveBtn);
+          cDiv.appendChild(editActions);
+        } else {
+          var cMeta = document.createElement("div");
+          cMeta.className = "comment-meta";
+          cMeta.textContent = (c.author || "Someone") + " · " + formatTimestamp(c.timestamp) + (c.editedAt ? " (edited)" : "");
+          if(c.author === whoAmI){
+            var editLink = document.createElement("button");
+            editLink.type = "button";
+            editLink.textContent = "Edit";
+            editLink.style.cssText = "background:none;border:none;color:var(--primary-dark);font-size:11px;font-weight:600;cursor:pointer;float:right;padding:0;";
+            editLink.addEventListener("click", function(){
+              editingCommentId = c.id;
+              window.__redraw();
+            });
+            cMeta.appendChild(editLink);
+          }
+          cDiv.appendChild(cMeta);
+          var cText = document.createElement("div");
+          if(c.mentions && c.mentions.length){
+            var mSpan = document.createElement("span");
+            mSpan.className = "comment-mentions";
+            mSpan.textContent = c.mentions.map(function(m){ return "@" + m; }).join(" ") + " ";
+            cText.appendChild(mSpan);
+          }
+          cText.appendChild(document.createTextNode(c.text));
+          cDiv.appendChild(cText);
         }
-        cText.appendChild(document.createTextNode(c.text));
-        cDiv.appendChild(cText);
         commentsWrap.appendChild(cDiv);
       });
       notesBlock.appendChild(commentsWrap);
@@ -2378,6 +2417,163 @@
   mFileInput.addEventListener("change", function(e){
     if(e.target.files && e.target.files.length) handleFileUpload(e.target.files[0]);
     mFileInput.value = "";
+  });
+
+  // ---------- DOCUMENTS PANEL (quick view/add from the project row) ----------
+  var docsContext = null;
+
+  function openDocsPanel(tab, itemId){
+    docsContext = {tab: tab, itemId: itemId};
+    renderDocsPanel();
+    document.getElementById("docsOverlay").classList.add("show");
+  }
+
+  function renderDocsPanel(){
+    var body = document.getElementById("docsBody");
+    body.innerHTML = "";
+    var live = findNodeById(docsContext.tab, docsContext.itemId);
+    if(!live){
+      document.getElementById("docsTitle").textContent = "Documents";
+      body.innerHTML = '<div class="alert-empty">That project isn\'t there anymore — it may have been moved or deleted.</div>';
+      return;
+    }
+    document.getElementById("docsTitle").textContent = "Documents — " + live.title;
+
+    var list = document.createElement("div");
+    if(!live.links || live.links.length === 0){
+      var empty = document.createElement("div");
+      empty.className = "alert-empty";
+      empty.textContent = "Nothing attached yet.";
+      list.appendChild(empty);
+    } else {
+      live.links.forEach(function(link){
+        var row = document.createElement("div");
+        row.style.cssText = "display:flex;align-items:center;gap:8px;margin-bottom:6px;";
+        var btn;
+        if(link.repoPath){
+          btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "node-link-btn";
+          btn.textContent = "📎 " + (link.label || "file");
+          btn.addEventListener("click", function(){ openRepoFile(link.repoPath, link.label, false, link.mimeType); });
+        } else {
+          btn = document.createElement("a");
+          btn.className = "node-link-btn";
+          btn.href = link.url;
+          btn.target = "_blank";
+          btn.rel = "noopener";
+          btn.textContent = "🔗 " + (link.label || link.url);
+        }
+        row.appendChild(btn);
+        if(currentRole === "admin"){
+          var rm = document.createElement("button");
+          rm.type = "button";
+          rm.className = "icon-btn danger";
+          rm.textContent = "🗑";
+          rm.title = "Remove";
+          rm.addEventListener("click", function(){
+            if(!confirm("Remove this document from the project?")) return;
+            var liveNow = findNodeById(docsContext.tab, docsContext.itemId);
+            if(!liveNow) return;
+            liveNow.links = (liveNow.links || []).filter(function(l){ return l !== link; });
+            save();
+            renderDocsPanel();
+            window.__redraw();
+          });
+          row.appendChild(rm);
+        }
+        list.appendChild(row);
+      });
+    }
+    body.appendChild(list);
+
+    if(currentRole === "admin"){
+      var uploadWrap = document.createElement("div");
+      uploadWrap.style.marginTop = "12px";
+
+      var dropZone = document.createElement("div");
+      dropZone.className = "file-drop";
+      dropZone.textContent = "Drag a file here, or click to attach (best under 3MB)";
+      var fileInput = document.createElement("input");
+      fileInput.type = "file";
+      fileInput.style.display = "none";
+
+      function handleDocsFileUpload(file){
+        if(!syncConfig){ alert("Connect shared sync first (⚙) to attach documents."); return; }
+        if(file.size > 20*1024*1024){ alert("That file is too large (over 20MB). Try a smaller file, or add a link instead."); return; }
+        if(file.size > 3*1024*1024 && !confirm("This file is larger than 3MB and may take a moment to upload. Continue?")) return;
+        var original = dropZone.textContent;
+        dropZone.textContent = "Uploading " + file.name + "...";
+        uploadFileToRepo(file).then(function(result){
+          var liveNow = findNodeById(docsContext.tab, docsContext.itemId);
+          if(!liveNow){ alert("That project isn't there anymore."); return; }
+          if(!Array.isArray(liveNow.links)) liveNow.links = [];
+          liveNow.links.push(result);
+          save();
+          renderDocsPanel();
+          window.__redraw();
+        }).catch(function(err){
+          console.error(err);
+          alert("Couldn't upload that file. Double-check your shared sync connection (⚙) and try again.");
+          dropZone.textContent = original;
+        });
+      }
+      dropZone.addEventListener("click", function(){ fileInput.click(); });
+      dropZone.addEventListener("dragover", function(e){ e.preventDefault(); dropZone.classList.add("drag-over"); });
+      dropZone.addEventListener("dragleave", function(){ dropZone.classList.remove("drag-over"); });
+      dropZone.addEventListener("drop", function(e){
+        e.preventDefault();
+        dropZone.classList.remove("drag-over");
+        if(e.dataTransfer.files && e.dataTransfer.files.length) handleDocsFileUpload(e.dataTransfer.files[0]);
+      });
+      fileInput.addEventListener("change", function(e){
+        if(e.target.files && e.target.files.length) handleDocsFileUpload(e.target.files[0]);
+        fileInput.value = "";
+      });
+      uploadWrap.appendChild(dropZone);
+      uploadWrap.appendChild(fileInput);
+
+      var linkRow = document.createElement("div");
+      linkRow.className = "link-row-inputs";
+      var labelInput = document.createElement("input");
+      labelInput.type = "text";
+      labelInput.className = "link-label-input";
+      labelInput.placeholder = "Label (optional)";
+      var urlInput = document.createElement("input");
+      urlInput.type = "text";
+      urlInput.className = "link-url-input";
+      urlInput.placeholder = "https://...";
+      var addLinkBtn = document.createElement("button");
+      addLinkBtn.type = "button";
+      addLinkBtn.className = "chip-add-btn";
+      addLinkBtn.textContent = "+ Add link";
+      addLinkBtn.addEventListener("click", function(){
+        var url = urlInput.value.trim();
+        if(!url) return;
+        if(!/^https?:\/\//i.test(url)) url = "https://" + url;
+        var liveNow = findNodeById(docsContext.tab, docsContext.itemId);
+        if(!liveNow){ alert("That project isn't there anymore."); return; }
+        if(!Array.isArray(liveNow.links)) liveNow.links = [];
+        liveNow.links.push({label: labelInput.value.trim(), url: url});
+        save();
+        labelInput.value = ""; urlInput.value = "";
+        renderDocsPanel();
+        window.__redraw();
+      });
+      linkRow.appendChild(labelInput);
+      linkRow.appendChild(urlInput);
+      linkRow.appendChild(addLinkBtn);
+      uploadWrap.appendChild(linkRow);
+
+      body.appendChild(uploadWrap);
+    }
+  }
+
+  document.getElementById("docsCancel").addEventListener("click", function(){
+    document.getElementById("docsOverlay").classList.remove("show");
+  });
+  document.getElementById("docsOverlay").addEventListener("click", function(e){
+    if(e.target === document.getElementById("docsOverlay")) document.getElementById("docsOverlay").classList.remove("show");
   });
 
   function renderChips(){
