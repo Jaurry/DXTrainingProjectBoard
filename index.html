@@ -845,10 +845,22 @@
     cloudPush();
   }
 
+  function isTypingActive(){
+    var el = document.activeElement;
+    if(!el) return false;
+    var tag = el.tagName;
+    return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+  }
+
   function startPolling(){
     if(pollTimer) clearInterval(pollTimer);
     pollTimer = setInterval(function(){
-      if(syncConfig) cloudPull(false).then(function(changed){ if(changed){ renderTabs(); renderMain(); updateAlertBadge(); updateStatusBadge(); updateFeedbackBadge(); } });
+      if(syncConfig) cloudPull(false).then(function(changed){
+        updateAlertBadge(); updateStatusBadge(); updateFeedbackBadge();
+        if(changed && !isTypingActive()){
+          renderTabs(); renderMain();
+        }
+      });
     }, POLL_MS);
   }
 
