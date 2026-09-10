@@ -2101,7 +2101,7 @@
       var reactionBar = document.createElement("div");
       reactionBar.className = "reaction-bar";
       var reactionTab = activeTab, reactionItemId = item.id;
-      var REACTION_CHOICES = ["👍","👎","🎉","❤️","👏","😂","👀","🔥","💯","🙌","💩","✅"];
+      var REACTION_CHOICES = ["👍","👎","🎉","❤️","👏","😂","👀","🔥","💯","🙌","✅"];
 
       Object.keys(item.reactions || {}).forEach(function(emoji){
         var people = item.reactions[emoji] || [];
