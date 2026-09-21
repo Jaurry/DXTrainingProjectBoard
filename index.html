@@ -2012,13 +2012,23 @@
       check.className = "node-check";
       check.checked = item.completed;
       check.title = "Mark complete";
+      var checkboxTab = activeTab, checkboxItemId = item.id, checkboxDepth = depth;
       check.addEventListener("change", function(){
-        item.completed = check.checked;
-        if(check.checked && depth === 0 && activeTab !== "completed"){
-          if(confirm('Move "' + item.title + '" to the Completed tab?')){
-            var i = arr.indexOf(item);
-            arr.splice(i,1);
-            data.completed.push(item);
+        var liveNode = findNodeById(checkboxTab, checkboxItemId);
+        if(!liveNode){
+          alert("That item isn't there anymore — it may have just been moved or deleted on someone else's screen.");
+          window.__redraw();
+          return;
+        }
+        liveNode.completed = check.checked;
+        if(check.checked && checkboxDepth === 0 && checkboxTab !== "completed"){
+          if(confirm('Move "' + liveNode.title + '" to the Completed tab?')){
+            var liveArr = findParentArray(checkboxTab, checkboxItemId);
+            if(liveArr){
+              var i = liveArr.findIndex(function(x){ return x.id === checkboxItemId; });
+              if(i > -1) liveArr.splice(i,1);
+              data.completed.push(liveNode);
+            }
             save();
             renderTabs();
             renderMain();
